@@ -1,0 +1,3 @@
+[submodule "extern/libelfin"]
+	path = extern/libelfin
+	url = https://github.com/MrElectrify/libelfin.git
