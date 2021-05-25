@@ -54,7 +54,12 @@ tl::expected<std::shared_ptr<Class>, std::string> Class::FromDIE(
 		// make sure the type is not a namespace
 		if (parsedChild.value()->GetBasicType() == BasicType::Namespace)
 			return tl::make_unexpected("A class had a nested namespace!");
-		result->m_members.push_back(std::move(parsedChild.value()));
+		// if accessibility is unstated, it uses the defaults
+		Accessibility accessibility = (struct_ == true) ? Accessibility::Public : Accessibility::Private;
+		auto accessibilityAttr = child.resolve(dwarf::DW_AT::accessibility);
+		if (accessibilityAttr.valid() == true)
+			accessibility = static_cast<Accessibility>(accessibilityAttr.as_uconstant());
+		result->m_members.emplace_back(std::move(parsedChild.value()), accessibility);
 	}
 	return result;
 
@@ -145,6 +150,9 @@ tl::expected<std::shared_ptr<Value>, std::string> Value::FromDIE(Parser& parser,
 		return tl::make_unexpected(std::move(parsedType.error()));
 	if (parsedType.value()->GetBasicType() != BasicType::Type)
 		return tl::make_unexpected("A value's type was not a type!");
+	std::cout << to_string(die.tag) << ":\n";
+	for (const auto& attr : die.attributes())
+		std::cout << to_string(attr.first) << ": " << to_string(attr.second) << '\n';
 	return std::shared_ptr<Value>(new Value(
 		std::static_pointer_cast<Type>(parsedType.value()), name.as_string()));
 }

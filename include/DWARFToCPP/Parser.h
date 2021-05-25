@@ -20,6 +20,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 #if _WIN32
 #pragma warning(pop)
@@ -131,6 +132,13 @@ namespace DWARFToCPP
 	class Class : public Type
 	{
 	public:
+		enum class Accessibility
+		{
+			Public = 1,
+			Protected,
+			Private
+		};
+
 		/// @brief Creates a class from a DIE entry. Parses any
 		/// types and other named concepts within
 		/// @param parser The parser
@@ -148,7 +156,7 @@ namespace DWARFToCPP
 			m_struct(struct_) {}
 
 		bool m_struct;
-		std::vector<std::shared_ptr<Named>> m_members;
+		std::vector<std::pair<std::shared_ptr<Named>, Accessibility>> m_members;
 		std::vector<std::weak_ptr<Class>> m_parentClasses;
 	};
 
