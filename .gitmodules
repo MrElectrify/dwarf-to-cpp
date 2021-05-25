@@ -1,3 +1,6 @@
 [submodule "extern/libelfin"]
 	path = extern/libelfin
 	url = https://github.com/MrElectrify/libelfin.git
+[submodule "extern/expected"]
+	path = extern/expected
+	url = https://github.com/TartanLlama/expected.git
