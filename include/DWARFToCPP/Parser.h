@@ -189,14 +189,14 @@ namespace DWARFToCPP
 			Parser& parser, const dwarf::die& die) noexcept;
 	protected:
 		/// @tparam Str The string type
-		/// @param struct_ Whether or not the class is considered a struct
+		/// @param classType The class type
 		/// @param name The name
 		template<typename Str>
-		Class(bool struct_, Str&& name) noexcept : Typed(
+		Class(dwarf::DW_TAG classType, Str&& name) noexcept : Typed(
 			TypeCode::Class, std::forward<Str>(name)),
-			m_struct(struct_) {}
+			m_classType(classType) {}
 
-		bool m_struct;
+		dwarf::DW_TAG m_classType;
 		std::vector<std::pair<std::shared_ptr<Named>, Accessibility>> m_members;
 		std::vector<std::weak_ptr<Class>> m_parentClasses;
 	};

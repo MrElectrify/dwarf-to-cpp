@@ -40,10 +40,11 @@ tl::expected<std::shared_ptr<Class>, std::string> Class::FromDIE(
 	Parser& parser, const dwarf::die& die) noexcept
 {
 	auto name = die.resolve(dwarf::DW_AT::name);
-	if (name.valid() == false)
-		return tl::make_unexpected("A class was missing a name!");
-	bool struct_ = (die.tag == dwarf::DW_TAG::structure_type);
-	std::shared_ptr<Class> result(new Class(struct_, name.as_string()));
+	std::string className;
+	if (name.valid() == true)
+		className = name.as_string();
+	bool publicDefault = (die.tag != dwarf::DW_TAG::class_type);
+	std::shared_ptr<Class> result(new Class(die.tag, std::move(className)));
 	// a namespace contains many children. parse each one
 	for (const auto& child : die)
 	{
@@ -55,7 +56,7 @@ tl::expected<std::shared_ptr<Class>, std::string> Class::FromDIE(
 		if (parsedChild.value()->GetType() == Type::Namespace)
 			return tl::make_unexpected("A class had a nested namespace!");
 		// if accessibility is unstated, it uses the defaults
-		Accessibility accessibility = (struct_ == true) ? Accessibility::Public : Accessibility::Private;
+		Accessibility accessibility = (publicDefault == true) ? Accessibility::Public : Accessibility::Private;
 		auto accessibilityAttr = child.resolve(dwarf::DW_AT::accessibility);
 		if (accessibilityAttr.valid() == true)
 			accessibility = static_cast<Accessibility>(accessibilityAttr.as_uconstant());
@@ -277,6 +278,8 @@ tl::expected<std::shared_ptr<Named>, std::string> Parser::ParseDie(const dwarf::
 		break;
 	}
 	case dwarf::DW_TAG::class_type:
+	case dwarf::DW_TAG::structure_type:
+	case dwarf::DW_TAG::union_type:
 	{
 		auto class_ = Class::FromDIE(*this, die);
 		if (class_.has_value() == false)
@@ -326,14 +329,6 @@ tl::expected<std::shared_ptr<Named>, std::string> Parser::ParseDie(const dwarf::
 		if (pointer.has_value() == false)
 			return tl::make_unexpected(std::move(pointer.error()));
 		result = std::move(pointer.value());
-		break;
-	}
-	case dwarf::DW_TAG::structure_type:
-	{
-		auto struct_ = Class::FromDIE(*this, die);
-		if (struct_.has_value() == false)
-			return tl::make_unexpected(std::move(struct_.error()));
-		result = std::move(struct_.value());
 		break;
 	}
 	case dwarf::DW_TAG::subprogram:
