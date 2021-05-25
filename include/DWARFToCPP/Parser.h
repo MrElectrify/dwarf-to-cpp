@@ -155,7 +155,8 @@ namespace DWARFToCPP
 			PointerToMember,
 			RefType,
 			Subroutine,
-			TypeDef
+			TypeDef,
+			VolatileType
 		};
 
 		/// @param typeCode The typed concept's type code
@@ -351,6 +352,21 @@ namespace DWARFToCPP
 		std::weak_ptr<Typed> m_type;
 	};
 
+	class VolatileType : public Typed
+	{
+	public:
+		VolatileType() noexcept : Typed(TypeCode::VolatileType) {}
+
+		/// @brief Parses a DIE to a named concept
+		/// @param parser The parser
+		/// @param die The DIE
+		/// @return The error, if applicable
+		virtual std::optional<std::string> ParseDIE(Parser& parser,
+			const dwarf::die& die) noexcept;
+	private:
+		std::weak_ptr<Named> m_type;
+	};
+
 	class Value : public Named
 	{
 	public:
@@ -402,6 +418,7 @@ namespace DWARFToCPP
 		friend RefType;
 		friend TypeDef;
 		friend Value;
+		friend VolatileType;
 
 		/// @brief Parses a single compliation unit
 		/// @param unit The compilation unit to parse

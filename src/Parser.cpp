@@ -127,9 +127,11 @@ std::optional<std::string> Enum::ParseDIE(Parser& parser,
 	const dwarf::die& die) noexcept
 {
 	auto name = die.resolve(dwarf::DW_AT::name);
-	if (name.valid() == false)
-		return "An enum was missing a name!";
-	SetName(name.as_string());
+	// enums dont have to have names
+	if (name.valid() == true)
+		SetName(name.as_string());
+	else
+		SetName(std::to_string(std::hash<void*>()(this)));
 	// parse the enumerators
 	for (auto child : die)
 	{
@@ -191,6 +193,9 @@ void Namespace::AddNamed(const std::shared_ptr<Named>& named) noexcept
 	if (named == nullptr)
 		return;
 	auto name = named->GetName();
+	// just ignore empty names
+	if (name.empty() == true)
+		return;
 	m_namedConcepts.emplace(std::move(name), named);
 }
 
@@ -198,9 +203,10 @@ std::optional<std::string> Namespace::ParseDIE(Parser& parser,
 	const dwarf::die& die) noexcept
 {
 	auto name = die.resolve(dwarf::DW_AT::name);
-	if (name.valid() == false)
-		return "A namespace was missing a name!";
-	SetName(name.as_string());
+	if (name.valid() == true)
+		SetName(name.as_string());
+	else
+		SetName("::");
 	// a namespace contains many children. parse each one
 	for (const auto& child : die)
 	{
@@ -208,8 +214,7 @@ std::optional<std::string> Namespace::ParseDIE(Parser& parser,
 		auto parsedChild = parser.ParseDIE(child);
 		if (parsedChild.has_value() == false)
 			return std::move(parsedChild.error());
-		auto childName = parsedChild.value()->GetName();
-		m_namedConcepts.emplace(std::move(childName), parsedChild.value());
+		AddNamed(parsedChild.value());
 	}
 	return std::nullopt;
 }
@@ -395,15 +400,37 @@ std::optional<std::string> Value::ParseDIE(Parser& parser,
 	return std::nullopt;
 }
 
+std::optional<std::string> VolatileType::ParseDIE(Parser& parser,
+	const dwarf::die& die) noexcept
+{
+	// parse the embedded type
+	auto type = die.resolve(dwarf::DW_AT::type);
+	if (type.valid() == false)
+		return "A volatile type did not have a type!";
+	auto parsedType = parser.ParseDIE(type.as_reference());
+	if (parsedType.has_value() == false)
+		return std::move(parsedType.error());
+	if (parsedType.value()->GetType() != Type::Typed)
+		return "A volatile type was not a type!";
+	m_type = std::static_pointer_cast<Typed>(std::move(parsedType.value()));
+	SetName(m_type.lock()->GetName() + '&');
+	return std::nullopt;
+}
 // parser
 
 std::optional<std::string> Parser::ParseDWARF(const dwarf::dwarf& data) noexcept
 {
+	size_t unitNo = 0;
 	for (const auto& compilationUnit : data.compilation_units())
 	{
+		size_t startingTypes = m_parsedEntries.size();
 		if (auto res = ParseCompilationUnit(compilationUnit); 
 			res.has_value() == true)
 			return std::move(res.value());
+		size_t currentTypes = m_parsedEntries.size();
+		size_t deltaTypes = currentTypes - startingTypes;
+		printf("Parsed unit %zd/%zd with %zd new types and %zd total\n",
+			unitNo++, data.compilation_units().size(), deltaTypes, m_parsedEntries.size());
 	}
 	return std::nullopt;
 }
@@ -483,6 +510,9 @@ tl::expected<std::shared_ptr<Named>, std::string> Parser::ParseDIE(const dwarf::
 		break;
 	case dwarf::DW_TAG::typedef_:
 		result = std::make_shared<TypeDef>();
+		break;
+	case dwarf::DW_TAG::volatile_type:
+		result = std::make_shared<VolatileType>();
 		break;
 	default:
 		std::cout << "Type dump for " << to_string(die.tag) << ":\n";
