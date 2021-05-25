@@ -134,6 +134,26 @@ tl::expected<std::shared_ptr<Type>, std::string> Type::FromDIE(const dwarf::die&
 	return std::shared_ptr<Type>(new Type(TypeCode::Basic, name.as_string()));
 }
 
+tl::expected<std::shared_ptr<TypeDef>, std::string> TypeDef::FromDIE(Parser& parser,
+	const dwarf::die& die) noexcept
+{
+	auto name = die.resolve(dwarf::DW_AT::name);
+	if (name.valid() == false)
+		return tl::make_unexpected("A value was missing a name!");
+	// find the type
+	auto type = die.resolve(dwarf::DW_AT::type);
+	if (type.valid() == false)
+		return tl::make_unexpected("A value was missing a type!");
+	// parse the type
+	auto parsedType = parser.ParseDie(type.as_reference());
+	if (parsedType.has_value() == false)
+		return tl::make_unexpected(std::move(parsedType.error()));
+	if (parsedType.value()->GetBasicType() != BasicType::Type)
+		return tl::make_unexpected("A value's type was not a type!");
+	return std::shared_ptr<TypeDef>(new TypeDef(
+		std::static_pointer_cast<Type>(parsedType.value()), name.as_string()));
+}
+
 tl::expected<std::shared_ptr<Value>, std::string> Value::FromDIE(Parser& parser,
 	const dwarf::die& die) noexcept
 {
@@ -150,9 +170,6 @@ tl::expected<std::shared_ptr<Value>, std::string> Value::FromDIE(Parser& parser,
 		return tl::make_unexpected(std::move(parsedType.error()));
 	if (parsedType.value()->GetBasicType() != BasicType::Type)
 		return tl::make_unexpected("A value's type was not a type!");
-	std::cout << to_string(die.tag) << ":\n";
-	for (const auto& attr : die.attributes())
-		std::cout << to_string(attr.first) << ": " << to_string(attr.second) << '\n';
 	return std::shared_ptr<Value>(new Value(
 		std::static_pointer_cast<Type>(parsedType.value()), name.as_string()));
 }
@@ -245,6 +262,14 @@ tl::expected<std::shared_ptr<Named>, std::string> Parser::ParseDie(const dwarf::
 		if (subprogram.has_value() == false)
 			return tl::make_unexpected(std::move(subprogram.error()));
 		result = std::move(subprogram.value());
+		break;
+	}
+	case dwarf::DW_TAG::typedef_:
+	{
+		auto typedef_ = TypeDef::FromDIE(*this, die);
+		if (typedef_.has_value() == false)
+			return tl::make_unexpected(std::move(typedef_.error()));
+		result = std::move(typedef_.value());
 		break;
 	}
 	default:

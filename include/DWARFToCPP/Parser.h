@@ -38,6 +38,7 @@ namespace DWARFToCPP
 			Namespace,
 			SubProgram,
 			Type,
+			TypeDef,
 			Value
 		};
 	protected:
@@ -84,6 +85,27 @@ namespace DWARFToCPP
 			m_typeCode(typeCode) {}
 
 		TypeCode m_typeCode;
+	};
+
+	class TypeDef : public Named
+	{
+	public:
+		/// @brief Creates a typedef from a DIE entry
+		/// @param parser The parser
+		/// @param die The DIE entry
+		/// @return The typedef, or the error
+		static tl::expected<std::shared_ptr<TypeDef>, std::string> FromDIE(
+			Parser& parser, const dwarf::die& die) noexcept;
+	private:
+		/// @tparam Str The string type
+		/// @param type The type of the value
+		/// @param name The name of the value
+		template<typename Str>
+		TypeDef(std::weak_ptr<Type> type, Str&& name) noexcept :
+			Named(Named::BasicType::TypeDef, std::forward<Str>(name)),
+			m_type(std::move(type)) {}
+
+		std::shared_ptr<Type> m_type;
 	};
 
 	class Value : public Named
@@ -228,6 +250,7 @@ namespace DWARFToCPP
 		friend Namespace;
 		friend SubProgram;
 		friend Type;
+		friend TypeDef;
 		friend Value;
 
 		/// @brief Parses a single compliation unit
