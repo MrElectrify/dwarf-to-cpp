@@ -37,7 +37,7 @@ namespace DWARFToCPP
 		enum class Type
 		{
 			Enumerator,
-			Imported,
+			Ignored,
 			Namespace,
 			SubProgram,
 			Typed,
@@ -88,13 +88,13 @@ namespace DWARFToCPP
 		virtual std::optional<std::string> ParseDIE(Parser& parser,
 			const dwarf::die& die) noexcept;
 	private:
-		uint64_t m_value = 0;
+		std::variant<uint64_t, int64_t> m_value;
 	};
 
-	class Imported : public Named
+	class Ignored : public Named
 	{
 	public:
-		Imported() noexcept : Named(Type::Imported) {}
+		Ignored() noexcept : Named(Type::Ignored) {}
 
 		/// @brief Parses a DIE to a named concept
 		/// @param parser The parser
@@ -240,7 +240,7 @@ namespace DWARFToCPP
 		virtual std::optional<std::string> ParseDIE(Parser& parser,
 			const dwarf::die& die) noexcept;
 	private:
-		std::weak_ptr<Named> m_type;
+		std::optional<std::weak_ptr<Named>> m_type;
 	};
 
 	class Enum : public Typed
@@ -285,7 +285,7 @@ namespace DWARFToCPP
 		virtual std::optional<std::string> ParseDIE(Parser& parser,
 			const dwarf::die& die) noexcept;
 	private:
-		std::weak_ptr<Named> m_type;
+		std::optional<std::weak_ptr<Named>> m_type;
 	};
 
 	class PointerToMember : public Typed
@@ -432,7 +432,7 @@ namespace DWARFToCPP
 		// the global namespace will contain every type and function found
 		Namespace m_globalNamespace;
 		// we also store parsed entries here
-		std::unordered_map<dwarf::die, std::shared_ptr<Named>> m_parsedEntries;
+		std::unordered_map<const void*, std::shared_ptr<Named>> m_parsedEntries;
 	};
 }
 

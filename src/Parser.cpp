@@ -111,15 +111,16 @@ std::optional<std::string> ConstType::ParseDIE(Parser& parser,
 {
 	// parse the embedded type
 	auto type = die.resolve(dwarf::DW_AT::type);
-	if (type.valid() == false)
-		return "A const type did not have a type!";
-	auto parsedType = parser.ParseDIE(type.as_reference());
-	if (parsedType.has_value() == false)
-		return std::move(parsedType.error());
-	if (parsedType.value()->GetType() != Type::Typed)
-		return "A const type was not a type!";
-	m_type = std::static_pointer_cast<Typed>(std::move(parsedType.value()));
-	SetName("const " + m_type.lock()->GetName());
+	if (type.valid() == true)
+	{
+		auto parsedType = parser.ParseDIE(type.as_reference());
+		if (parsedType.has_value() == false)
+			return std::move(parsedType.error());
+		if (parsedType.value()->GetType() != Type::Typed)
+			return "A const type was not a type!";
+		m_type = std::static_pointer_cast<Typed>(std::move(parsedType.value()));
+	}
+	SetName("const " + (m_type.has_value() == true ? m_type->lock()->GetName() : "void"));
 	return std::nullopt;
 }
 
@@ -156,11 +157,17 @@ std::optional<std::string> Enumerator::ParseDIE(Parser& parser,
 	auto value = die.resolve(dwarf::DW_AT::const_value);
 	if (value.valid() == false)
 		return "An enumerator was missing a value!";
-	m_value = value.as_uconstant();
+	if (value.get_type() == dwarf::value::type::sconstant)
+		m_value = value.as_sconstant();
+	else if (value.get_type() == dwarf::value::type::uconstant ||
+		value.get_type() == dwarf::value::type::constant)
+		m_value = value.as_uconstant();
+	else
+		return "An enumerator had an invalid type!";
 	return std::nullopt;
 }
 
-std::optional<std::string> Imported::ParseDIE(Parser& parser,
+std::optional<std::string> Ignored::ParseDIE(Parser& parser,
 	const dwarf::die& die) noexcept
 {
 	// we don't care about anything here
@@ -223,15 +230,16 @@ std::optional<std::string> Pointer::ParseDIE(Parser& parser,
 	const dwarf::die& die) noexcept
 {
 	auto type = die.resolve(dwarf::DW_AT::type);
-	if (type.valid() == false)
-		return "A pointer was missing a type!";
-	auto parsedType = parser.ParseDIE(type.as_reference());
-	if (parsedType.has_value() == false)
-		return std::move(parsedType.error());
-	if (parsedType.value()->GetType() != Type::Typed)
-		return "A pointer was not in reference to a type!";
-	m_type = std::static_pointer_cast<Typed>(std::move(parsedType.value()));
-	SetName(m_type.lock()->GetName() + '*');
+	if (type.valid() == true)
+	{
+		auto parsedType = parser.ParseDIE(type.as_reference());
+		if (parsedType.has_value() == false)
+			return std::move(parsedType.error());
+		if (parsedType.value()->GetType() != Type::Typed)
+			return "A pointer was not in reference to a type!";
+		m_type = std::static_pointer_cast<Typed>(std::move(parsedType.value()));
+	}
+	SetName((m_type.has_value() == true ? m_type->lock()->GetName() : "void") + '*');
 	return std::nullopt;
 }
 
@@ -420,7 +428,7 @@ std::optional<std::string> VolatileType::ParseDIE(Parser& parser,
 
 std::optional<std::string> Parser::ParseDWARF(const dwarf::dwarf& data) noexcept
 {
-	size_t unitNo = 0;
+	size_t unitNo = 1;
 	for (const auto& compilationUnit : data.compilation_units())
 	{
 		size_t startingTypes = m_parsedEntries.size();
@@ -449,8 +457,10 @@ std::optional<std::string> Parser::ParseCompilationUnit(const dwarf::compilation
 
 tl::expected<std::shared_ptr<Named>, std::string> Parser::ParseDIE(const dwarf::die& die) noexcept
 {
-	// if we already parsed it, return the entry
-	const auto parsedIt = m_parsedEntries.find(die);
+	// if we already parsed it, return the entry. use unit and offset to save space
+	const auto parsedIt = m_parsedEntries.find(
+		reinterpret_cast<const char*>(
+		&die.get_unit()) + die.get_section_offset());
 	if (parsedIt != m_parsedEntries.end())
 		return parsedIt->second;
 	std::shared_ptr<Named> result;
@@ -484,7 +494,8 @@ tl::expected<std::shared_ptr<Named>, std::string> Parser::ParseDIE(const dwarf::
 		break;
 	case dwarf::DW_TAG::imported_declaration:
 	case dwarf::DW_TAG::imported_module:
-		result = std::make_shared<Imported>();
+	case static_cast<dwarf::DW_TAG>(0x4106):
+		result = std::make_shared<Ignored>();
 		break;
 	case dwarf::DW_TAG::namespace_:
 		result = std::make_shared<Namespace>();
@@ -520,7 +531,8 @@ tl::expected<std::shared_ptr<Named>, std::string> Parser::ParseDIE(const dwarf::
 			std::cout << to_string(attr.first) << ": " << to_string(attr.second) << '\n';
 		return tl::make_unexpected("Unimplemented DIE type " + to_string(die.tag));
 	}
-	m_parsedEntries.emplace(die, result);
+	m_parsedEntries.emplace(reinterpret_cast<const char*>(
+			&die.get_unit()) + die.get_section_offset(), result);
 	if (auto parseRes = result->ParseDIE(*this, die);
 		parseRes.has_value() == true)
 		return tl::make_unexpected(std::move(parseRes.value()));
