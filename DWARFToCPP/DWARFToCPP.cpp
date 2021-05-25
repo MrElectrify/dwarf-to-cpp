@@ -11,6 +11,12 @@
 #include <io.h>
 #endif
 
+// this warning is unavoidable. I didn't want to change the
+// api of libelfin, and it was a POSIX library
+#ifdef _WIN32
+#pragma warning(disable : 4996)
+#endif
+
 #include <iostream>
 
 int main(int argc, char* argv[])

@@ -6,6 +6,9 @@
 /// 5/24/21 15:50
 
 // libelfin includes
+#if _WIN32
+#pragma warning(push, 0)
+#endif
 #include <elf++.hh>
 #include <dwarf++.hh>
 
@@ -18,6 +21,9 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#if _WIN32
+#pragma warning(pop)
+#endif
 
 namespace DWARFToCPP
 {
