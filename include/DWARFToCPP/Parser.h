@@ -37,6 +37,7 @@ namespace DWARFToCPP
 		enum class Type
 		{
 			Enumerator,
+			Imported,
 			Namespace,
 			SubProgram,
 			Typed,
@@ -71,6 +72,7 @@ namespace DWARFToCPP
 	};
 
 	class Enum;
+	class Subroutine;
 	class Typed;
 	class Value;
 
@@ -87,6 +89,19 @@ namespace DWARFToCPP
 			const dwarf::die& die) noexcept;
 	private:
 		uint64_t m_value = 0;
+	};
+
+	class Imported : public Named
+	{
+	public:
+		Imported() noexcept : Named(Type::Imported) {}
+
+		/// @brief Parses a DIE to a named concept
+		/// @param parser The parser
+		/// @param die The DIE
+		/// @return The error, if applicable
+		virtual std::optional<std::string> ParseDIE(Parser& parser,
+			const dwarf::die& die) noexcept;
 	};
 
 	class Namespace : public Named
@@ -139,6 +154,7 @@ namespace DWARFToCPP
 			Pointer,
 			PointerToMember,
 			RefType,
+			Subroutine,
 			TypeDef
 		};
 
@@ -284,7 +300,7 @@ namespace DWARFToCPP
 			const dwarf::die& die) noexcept;
 	private:
 		std::weak_ptr<Class> m_containingType;
-		std::weak_ptr<SubProgram> m_functionType;
+		std::weak_ptr<Subroutine> m_functionType;
 	};
 
 	class RefType : public Typed
@@ -300,6 +316,24 @@ namespace DWARFToCPP
 			const dwarf::die& die) noexcept;
 	private:
 		std::weak_ptr<Named> m_type;
+	};
+
+	/// @brief Subroutine is like a subprogram,
+	/// only it's just a type and not an actual instance
+	class Subroutine : public Typed
+	{
+	public:
+		Subroutine() noexcept : Typed(TypeCode::Subroutine) {}
+
+		/// @brief Parses a DIE to a named concept
+		/// @param parser The parser
+		/// @param die The DIE
+		/// @return The error, if applicable
+		virtual std::optional<std::string> ParseDIE(Parser& parser,
+			const dwarf::die& die) noexcept;
+	private:
+		std::optional<std::weak_ptr<Typed>> m_returnType;
+		std::vector<std::weak_ptr<Value>> m_parameters;
 	};
 
 	class TypeDef : public Typed
@@ -364,6 +398,7 @@ namespace DWARFToCPP
 		friend Pointer;
 		friend PointerToMember;
 		friend SubProgram;
+		friend Subroutine;
 		friend RefType;
 		friend TypeDef;
 		friend Value;

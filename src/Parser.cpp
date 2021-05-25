@@ -158,6 +158,13 @@ std::optional<std::string> Enumerator::ParseDIE(Parser& parser,
 	return std::nullopt;
 }
 
+std::optional<std::string> Imported::ParseDIE(Parser& parser,
+	const dwarf::die& die) noexcept
+{
+	// we don't care about anything here
+	return std::nullopt;
+}
+
 std::optional<std::string> NamedType::ParseDIE(Parser& parser,
 	const dwarf::die& die) noexcept
 {
@@ -234,19 +241,24 @@ std::optional<std::string> PointerToMember::ParseDIE(Parser& parser,
 		return std::move(parsedContainingNamed.error());
 	if (parsedContainingNamed.value()->GetType() != Type::Typed)
 		return "A pointer-to-member had a non-typed containing type!";
-	auto parsedContainingType = std::static_pointer_cast<Typed>(std::move(parsedContainingNamed.value()));
+	auto parsedContainingType = std::static_pointer_cast<Typed>(
+		std::move(parsedContainingNamed.value()));
 	if (parsedContainingType->GetTypeCode() != TypeCode::Class)
 		return "A pointer-to-member's containing type was not class-based!";
 	m_containingType = std::static_pointer_cast<Class>(std::move(parsedContainingType));
 	auto functionType = die.resolve(dwarf::DW_AT::type);
 	if (functionType.valid() == false)
 		return "A pointer-to-member was missing a function type!";
-	auto parsedFunctionType = parser.ParseDIE(functionType.as_reference());
-	if (parsedFunctionType.has_value() == false)
-		return std::move(parsedFunctionType.error());
-	if (parsedFunctionType.value()->GetType() != Type::SubProgram)
+	auto parsedFunctionNamed = parser.ParseDIE(functionType.as_reference());
+	if (parsedFunctionNamed.has_value() == false)
+		return std::move(parsedFunctionNamed.error());
+	if (parsedFunctionNamed.value()->GetType() != Type::Typed)
 		return "A pointer-to-member had a non-type function!";
-	m_functionType = std::static_pointer_cast<SubProgram>(std::move(parsedFunctionType.value()));
+	auto parsedFunctionType = std::static_pointer_cast<Typed>(
+		std::move(parsedFunctionNamed.value()));
+	if (parsedFunctionType->GetTypeCode() != TypeCode::Subroutine)
+		return "A pointer-to-member had a non-subroutine function!";
+	m_functionType = std::static_pointer_cast<Subroutine>(std::move(parsedFunctionType));
 	// todo: construct a pointer-to-member type
 	return std::nullopt;
 }
@@ -297,9 +309,39 @@ std::optional<std::string> SubProgram::ParseDIE(Parser& parser,
 		auto parsedParam = parser.ParseDIE(param);
 		if (parsedParam.has_value() == false)
 			return std::move(parsedParam.error());
-		if (parsedParam.value()->GetType() != Type::Typed)
-			return "A subprogram's parameter was a non-type";
+		if (parsedParam.value()->GetType() != Type::Value)
+			return "A subprogram's parameter was a non value-type";
 		m_parameters.push_back(std::static_pointer_cast<Value>(
+			std::move(parsedParam.value())));
+	}
+	return std::nullopt;
+}
+
+std::optional<std::string> Subroutine::ParseDIE(Parser& parser,
+	const dwarf::die& die) noexcept
+{
+	auto returnType = die.resolve(dwarf::DW_AT::type);
+	if (returnType.valid() == true)
+	{
+		// parse the type
+		auto parsedType = parser.ParseDIE(returnType.as_reference());
+		if (parsedType.has_value() == false)
+			return std::move(parsedType.error());
+		if (parsedType.value()->GetType() != Type::Typed)
+			return "A subroutine's return type was not a type!";
+		m_returnType = std::static_pointer_cast<Typed>(std::move(parsedType.value()));
+	}
+	// parse each parameter
+	for (auto param : die)
+	{
+		if (param.tag != dwarf::DW_TAG::formal_parameter)
+			continue;
+		auto parsedParam = parser.ParseDIE(param);
+		if (parsedParam.has_value() == false)
+			return std::move(parsedParam.error());
+		if (parsedParam.value()->GetType() != Type::Value)
+			return "A subroutine had a non-value parameter";
+		m_parameters.emplace_back(std::static_pointer_cast<Value>(
 			std::move(parsedParam.value())));
 	}
 	return std::nullopt;
@@ -409,16 +451,13 @@ tl::expected<std::shared_ptr<Named>, std::string> Parser::ParseDIE(const dwarf::
 		result = std::make_shared<Enumerator>();
 		break;
 	case dwarf::DW_TAG::formal_parameter:
-	case dwarf::DW_TAG::template_type_parameter:
-	case dwarf::DW_TAG::template_value_parameter:
-		result = std::make_shared<NamedType>();
+	case dwarf::DW_TAG::member:
+	case dwarf::DW_TAG::variable:
+		result = std::make_shared<Value>();
 		break;
 	case dwarf::DW_TAG::imported_declaration:
 	case dwarf::DW_TAG::imported_module:
-		// we don't care about this
-		break;
-	case dwarf::DW_TAG::member:
-		result = std::make_shared<Value>();
+		result = std::make_shared<Imported>();
 		break;
 	case dwarf::DW_TAG::namespace_:
 		result = std::make_shared<Namespace>();
@@ -435,6 +474,13 @@ tl::expected<std::shared_ptr<Named>, std::string> Parser::ParseDIE(const dwarf::
 	case dwarf::DW_TAG::subprogram:
 		result = std::make_shared<SubProgram>();
 		break;
+	case dwarf::DW_TAG::subroutine_type:
+		result = std::make_shared<Subroutine>();
+		break;
+	case dwarf::DW_TAG::template_type_parameter:
+	case dwarf::DW_TAG::template_value_parameter:
+		result = std::make_shared<NamedType>();
+		break;
 	case dwarf::DW_TAG::typedef_:
 		result = std::make_shared<TypeDef>();
 		break;
@@ -445,9 +491,6 @@ tl::expected<std::shared_ptr<Named>, std::string> Parser::ParseDIE(const dwarf::
 		return tl::make_unexpected("Unimplemented DIE type " + to_string(die.tag));
 	}
 	m_parsedEntries.emplace(die, result);
-	// don't parse empty concepts
-	if (result == nullptr)
-		return result;
 	if (auto parseRes = result->ParseDIE(*this, die);
 		parseRes.has_value() == true)
 		return tl::make_unexpected(std::move(parseRes.value()));
