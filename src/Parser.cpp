@@ -33,7 +33,7 @@ std::optional<std::string> Array::ParseDIE(Parser& parser,
 	if (size.valid() == false)
 		return "An array's subrange info was missing the size!";
 	// the subrange size + 1 is the array's size
-	m_size = size.as_uconstant();
+	m_size = size.as_uconstant() + 1;
 	SetName(m_type.lock()->GetName() + '[' + std::to_string(m_size) + ']');
 	return std::nullopt;
 }
