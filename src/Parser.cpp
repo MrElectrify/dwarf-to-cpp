@@ -21,7 +21,7 @@ tl::expected<std::shared_ptr<Array>, std::string> Array::FromDIE(Parser& parser,
 	auto parsedType = parser.ParseDie(type.as_reference());
 	if (parsedType.has_value() == false)
 		return tl::make_unexpected(std::move(parsedType.error()));
-	if (parsedType->get()->GetBasicType() != BasicType::Type)
+	if (parsedType->get()->GetType() != Type::Typed)
 		return tl::make_unexpected("An array's type was not a type!");
 	// get the child, which contains size
 	auto child = *die.begin();
@@ -33,7 +33,7 @@ tl::expected<std::shared_ptr<Array>, std::string> Array::FromDIE(Parser& parser,
 		return tl::make_unexpected("An array's subrange info was missing the size!");
 	// the subrange size + 1 is the array's size
 	return std::shared_ptr<Array>(new Array(size.as_uconstant() + 1,
-		*std::static_pointer_cast<Type>(parsedType.value())));
+		std::static_pointer_cast<Typed>(parsedType.value())));
 }
 
 tl::expected<std::shared_ptr<Class>, std::string> Class::FromDIE(
@@ -52,7 +52,7 @@ tl::expected<std::shared_ptr<Class>, std::string> Class::FromDIE(
 		if (parsedChild.has_value() == false)
 			return tl::make_unexpected(std::move(parsedChild.error()));
 		// make sure the type is not a namespace
-		if (parsedChild.value()->GetBasicType() == BasicType::Namespace)
+		if (parsedChild.value()->GetType() == Type::Namespace)
 			return tl::make_unexpected("A class had a nested namespace!");
 		// if accessibility is unstated, it uses the defaults
 		Accessibility accessibility = (struct_ == true) ? Accessibility::Public : Accessibility::Private;
@@ -67,6 +67,8 @@ tl::expected<std::shared_ptr<Class>, std::string> Class::FromDIE(
 
 void Namespace::AddNamed(std::shared_ptr<Named> named) noexcept
 {
+	if (named == nullptr)
+		return;
 	auto name = named->Name();
 	m_namedConcepts.emplace(std::move(name), std::move(named));
 }
@@ -91,6 +93,19 @@ tl::expected<std::shared_ptr<Namespace>, std::string> Namespace::FromDIE(
 	return result;
 }
 
+tl::expected<std::shared_ptr<Pointer>, std::string> Pointer::FromDIE(
+	Parser& parser, const dwarf::die& die) noexcept
+{
+	auto type = die.resolve(dwarf::DW_AT::type);
+	if (type.valid() == false)
+		return tl::make_unexpected("A pointer was missing a type!");
+	auto parsedType = parser.ParseDie(type.as_reference());
+	if (parsedType.has_value() == false)
+		return tl::make_unexpected(std::move(parsedType.error()));
+	return std::shared_ptr<Pointer>(new Pointer(
+		std::static_pointer_cast<Typed>(parsedType.value())));
+}
+
 tl::expected<std::shared_ptr<SubProgram>, std::string> SubProgram::FromDIE(
 	Parser& parser, const dwarf::die& die) noexcept
 {
@@ -99,7 +114,7 @@ tl::expected<std::shared_ptr<SubProgram>, std::string> SubProgram::FromDIE(
 		return tl::make_unexpected("A subprogram was missing a name!");
 	// get the return type. it's under type. if type
 	// doesn't exist, return type is void
-	std::optional<std::weak_ptr<Type>> returnType;
+	std::optional<std::shared_ptr<Typed>> returnType;
 	auto type = die.resolve(dwarf::DW_AT::type);
 	if (type.valid() == true)
 	{
@@ -107,9 +122,9 @@ tl::expected<std::shared_ptr<SubProgram>, std::string> SubProgram::FromDIE(
 		auto parsedType = parser.ParseDie(type.as_reference());
 		if (parsedType.has_value() == false)
 			return tl::make_unexpected(std::move(parsedType.error()));
-		if (parsedType.value()->GetBasicType() != BasicType::Type)
+		if (parsedType.value()->GetType() != Type::Typed)
 			return tl::make_unexpected("A subprogram has a non-type return type!");
-		returnType = std::static_pointer_cast<Type>(parsedType.value());
+		returnType = std::static_pointer_cast<Typed>(parsedType.value());
 	}
 	std::shared_ptr<SubProgram> result(new SubProgram(std::move(returnType), name.as_string()));
 	// loop through the parameters, which are the sibling's children
@@ -126,12 +141,13 @@ tl::expected<std::shared_ptr<SubProgram>, std::string> SubProgram::FromDIE(
 	return result;
 }
 
-tl::expected<std::shared_ptr<Type>, std::string> Type::FromDIE(const dwarf::die& die) noexcept
+tl::expected<std::shared_ptr<BasicType>, std::string> 
+BasicType::FromDIE(const dwarf::die& die) noexcept
 {
 	auto name = die.resolve(dwarf::DW_AT::name);
 	if (name.valid() == false)
 		return tl::make_unexpected("A basic type was missing a name!");
-	return std::shared_ptr<Type>(new Type(TypeCode::Basic, name.as_string()));
+	return std::shared_ptr<BasicType>(new BasicType(name.as_string()));
 }
 
 tl::expected<std::shared_ptr<TypeDef>, std::string> TypeDef::FromDIE(Parser& parser,
@@ -139,19 +155,19 @@ tl::expected<std::shared_ptr<TypeDef>, std::string> TypeDef::FromDIE(Parser& par
 {
 	auto name = die.resolve(dwarf::DW_AT::name);
 	if (name.valid() == false)
-		return tl::make_unexpected("A value was missing a name!");
+		return tl::make_unexpected("A typedef was missing a name!");
 	// find the type
 	auto type = die.resolve(dwarf::DW_AT::type);
 	if (type.valid() == false)
-		return tl::make_unexpected("A value was missing a type!");
+		return tl::make_unexpected("A typedef was missing a type!");
 	// parse the type
 	auto parsedType = parser.ParseDie(type.as_reference());
 	if (parsedType.has_value() == false)
 		return tl::make_unexpected(std::move(parsedType.error()));
-	if (parsedType.value()->GetBasicType() != BasicType::Type)
-		return tl::make_unexpected("A value's type was not a type!");
+	if (parsedType.value()->GetType() != Type::Typed)
+		return tl::make_unexpected("A typedef's type was not a type!");
 	return std::shared_ptr<TypeDef>(new TypeDef(
-		std::static_pointer_cast<Type>(parsedType.value()), name.as_string()));
+		std::static_pointer_cast<Typed>(parsedType.value()), name.as_string()));
 }
 
 tl::expected<std::shared_ptr<Value>, std::string> Value::FromDIE(Parser& parser,
@@ -168,10 +184,10 @@ tl::expected<std::shared_ptr<Value>, std::string> Value::FromDIE(Parser& parser,
 	auto parsedType = parser.ParseDie(type.as_reference());
 	if (parsedType.has_value() == false)
 		return tl::make_unexpected(std::move(parsedType.error()));
-	if (parsedType.value()->GetBasicType() != BasicType::Type)
+	if (parsedType.value()->GetType() != Type::Typed)
 		return tl::make_unexpected("A value's type was not a type!");
 	return std::shared_ptr<Value>(new Value(
-		std::static_pointer_cast<Type>(parsedType.value()), name.as_string()));
+		std::static_pointer_cast<Typed>(parsedType.value()), name.as_string()));
 }
 
 // parser
@@ -218,10 +234,10 @@ tl::expected<std::shared_ptr<Named>, std::string> Parser::ParseDie(const dwarf::
 	}
 	case dwarf::DW_TAG::base_type:
 	{
-		auto type = Type::FromDIE(die);
-		if (type.has_value() == false)
-			return tl::make_unexpected(std::move(type.error()));
-		result = std::move(type.value());
+		auto basicType = BasicType::FromDIE(die);
+		if (basicType.has_value() == false)
+			return tl::make_unexpected(std::move(basicType.error()));
+		result = std::move(basicType.value());
 		break;
 	}
 	case dwarf::DW_TAG::class_type:
@@ -232,6 +248,10 @@ tl::expected<std::shared_ptr<Named>, std::string> Parser::ParseDie(const dwarf::
 		result = std::move(class_.value());
 		break;
 	}
+	case dwarf::DW_TAG::imported_declaration:
+	case dwarf::DW_TAG::imported_module:
+		// we don't care about this
+		break;
 	case dwarf::DW_TAG::member:
 	{
 		auto value = Value::FromDIE(*this, die);
@@ -246,6 +266,14 @@ tl::expected<std::shared_ptr<Named>, std::string> Parser::ParseDie(const dwarf::
 		if (namespace_.has_value() == false)
 			return tl::make_unexpected(std::move(namespace_.error()));
 		result = std::move(namespace_.value());
+		break;
+	}
+	case dwarf::DW_TAG::pointer_type:
+	{
+		auto pointer = Pointer::FromDIE(*this, die);
+		if (pointer.has_value() == false)
+			return tl::make_unexpected(std::move(pointer.error()));
+		result = std::move(pointer.value());
 		break;
 	}
 	case dwarf::DW_TAG::structure_type:
@@ -273,7 +301,12 @@ tl::expected<std::shared_ptr<Named>, std::string> Parser::ParseDie(const dwarf::
 		break;
 	}
 	default:
+	{
+		std::cout << "Type dump for " << to_string(die.tag) << ":\n";
+		for (const auto& attr : die.attributes())
+			std::cout << to_string(attr.first) << ": " << to_string(attr.second) << '\n';
 		return tl::make_unexpected("Unimplemented DIE type " + to_string(die.tag));
+	}
 	}
 	m_parsedEntries.emplace(die, result);
 	return result;
