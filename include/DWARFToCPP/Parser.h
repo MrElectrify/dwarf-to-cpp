@@ -36,6 +36,7 @@ namespace DWARFToCPP
 	public:
 		enum class Type
 		{
+			Enumerator,
 			Namespace,
 			SubProgram,
 			Typed,
@@ -58,6 +59,27 @@ namespace DWARFToCPP
 
 		Type m_type;
 		std::string m_name;
+	};
+
+	class Enum;
+
+	class Enumerator : public Named
+	{
+	public:
+		/// @brief Creates an enumerator from a DIE entry
+		/// @param die The DIE entry
+		/// @return The enumerator, or the error
+		static tl::expected<std::shared_ptr<Enumerator>, std::string> FromDIE(
+			const dwarf::die& die) noexcept;
+	private:
+		/// @tparam Str The string type
+		/// @param value The numerical value of the enumerator
+		/// @param name The name of the enumerator
+		template<typename Str>
+		Enumerator(uint64_t value, Str&& name) noexcept :
+			Named(Type::Enumerator, std::forward<Str>(name)), m_value(value) {}
+
+		uint64_t m_value;
 	};
 
 	class Namespace : public Named
@@ -95,6 +117,7 @@ namespace DWARFToCPP
 			Array,
 			Basic,
 			Class,
+			Enum,
 			Pointer,
 			TypeDef
 		};
@@ -178,6 +201,25 @@ namespace DWARFToCPP
 		std::vector<std::weak_ptr<Class>> m_parentClasses;
 	};
 
+	class Enum : public Typed
+	{
+	public:
+		/// @brief Creates an enum from a DIE entry
+		/// @param parser The parser
+		/// @param die The DIE entry
+		/// @return The enum, or the error
+		static tl::expected<std::shared_ptr<Enum>, std::string> FromDIE(
+			Parser& parser, const dwarf::die& die) noexcept;
+	private:
+		/// @tparam Str The string type
+		/// @param name The name of the type
+		template<typename Str>
+		Enum(Str&& name) noexcept :
+			Typed(TypeCode::Pointer, std::forward<Str>(name)) {}
+		
+		std::vector<std::shared_ptr<Enumerator>> m_enumerators;
+	};
+
 	class Pointer : public Typed
 	{
 	public:
@@ -190,7 +232,7 @@ namespace DWARFToCPP
 	private:
 		/// @param type The type of the pointer
 		Pointer(std::shared_ptr<Typed> type) noexcept :
-			Typed(TypeCode::TypeDef, ""), m_type(std::move(type)) {}
+			Typed(TypeCode::Pointer, ""), m_type(std::move(type)) {}
 
 		std::shared_ptr<Typed> m_type;
 	};
@@ -277,6 +319,7 @@ namespace DWARFToCPP
 		friend Array;
 		friend BasicType;
 		friend Class;
+		friend Enum;
 		friend Namespace;
 		friend Pointer;
 		friend SubProgram;

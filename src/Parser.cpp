@@ -33,7 +33,7 @@ tl::expected<std::shared_ptr<Array>, std::string> Array::FromDIE(Parser& parser,
 		return tl::make_unexpected("An array's subrange info was missing the size!");
 	// the subrange size + 1 is the array's size
 	return std::shared_ptr<Array>(new Array(size.as_uconstant() + 1,
-		std::static_pointer_cast<Typed>(parsedType.value())));
+		std::static_pointer_cast<Typed>(std::move(parsedType.value()))));
 }
 
 tl::expected<std::shared_ptr<Class>, std::string> Class::FromDIE(
@@ -63,6 +63,39 @@ tl::expected<std::shared_ptr<Class>, std::string> Class::FromDIE(
 	}
 	return result;
 
+}
+
+tl::expected<std::shared_ptr<Enum>, std::string> Enum::FromDIE(
+	Parser& parser, const dwarf::die& die) noexcept
+{
+	auto name = die.resolve(dwarf::DW_AT::name);
+	if (name.valid() == false)
+		return tl::make_unexpected("An enum was missing a name!");
+	std::shared_ptr<Enum> result(new Enum(name.as_string()));
+	// parse the enumerators
+	for (auto child : die)
+	{
+		auto enumerator = parser.ParseDie(child);
+		if (enumerator.has_value() == false)
+			return tl::make_unexpected(std::move(enumerator.error()));
+		if (enumerator.value()->GetType() != Type::Enumerator)
+			return tl::make_unexpected("An enum had a non-enumerator child!");
+		result->m_enumerators.push_back(std::static_pointer_cast<Enumerator>(
+			std::move(enumerator.value())));
+	}
+	return nullptr;
+}
+
+tl::expected<std::shared_ptr<Enumerator>, std::string> Enumerator::FromDIE(
+	const dwarf::die& die) noexcept
+{
+	auto name = die.resolve(dwarf::DW_AT::name);
+	if (name.valid() == false)
+		return tl::make_unexpected("An enumerator was missing a name!");
+	auto value = die.resolve(dwarf::DW_AT::const_value);
+	if (value.valid() == false)
+		return tl::make_unexpected("An enumerator was missing a value!");
+	return std::shared_ptr<Enumerator>(new Enumerator(value.as_uconstant(), name.as_string()));
 }
 
 void Namespace::AddNamed(std::shared_ptr<Named> named) noexcept
@@ -103,7 +136,7 @@ tl::expected<std::shared_ptr<Pointer>, std::string> Pointer::FromDIE(
 	if (parsedType.has_value() == false)
 		return tl::make_unexpected(std::move(parsedType.error()));
 	return std::shared_ptr<Pointer>(new Pointer(
-		std::static_pointer_cast<Typed>(parsedType.value())));
+		std::static_pointer_cast<Typed>(std::move(parsedType.value()))));
 }
 
 tl::expected<std::shared_ptr<SubProgram>, std::string> SubProgram::FromDIE(
@@ -124,7 +157,7 @@ tl::expected<std::shared_ptr<SubProgram>, std::string> SubProgram::FromDIE(
 			return tl::make_unexpected(std::move(parsedType.error()));
 		if (parsedType.value()->GetType() != Type::Typed)
 			return tl::make_unexpected("A subprogram has a non-type return type!");
-		returnType = std::static_pointer_cast<Typed>(parsedType.value());
+		returnType = std::static_pointer_cast<Typed>(std::move(parsedType.value()));
 	}
 	std::shared_ptr<SubProgram> result(new SubProgram(std::move(returnType), name.as_string()));
 	// loop through the parameters, which are the sibling's children
@@ -167,7 +200,8 @@ tl::expected<std::shared_ptr<TypeDef>, std::string> TypeDef::FromDIE(Parser& par
 	if (parsedType.value()->GetType() != Type::Typed)
 		return tl::make_unexpected("A typedef's type was not a type!");
 	return std::shared_ptr<TypeDef>(new TypeDef(
-		std::static_pointer_cast<Typed>(parsedType.value()), name.as_string()));
+		std::static_pointer_cast<Typed>(std::move(parsedType.value())), 
+		name.as_string()));
 }
 
 tl::expected<std::shared_ptr<Value>, std::string> Value::FromDIE(Parser& parser,
@@ -187,7 +221,8 @@ tl::expected<std::shared_ptr<Value>, std::string> Value::FromDIE(Parser& parser,
 	if (parsedType.value()->GetType() != Type::Typed)
 		return tl::make_unexpected("A value's type was not a type!");
 	return std::shared_ptr<Value>(new Value(
-		std::static_pointer_cast<Typed>(parsedType.value()), name.as_string()));
+		std::static_pointer_cast<Typed>(std::move(parsedType.value())), 
+		name.as_string()));
 }
 
 // parser
@@ -222,6 +257,7 @@ tl::expected<std::shared_ptr<Named>, std::string> Parser::ParseDie(const dwarf::
 	if (parsedIt != m_parsedEntries.end())
 		return parsedIt->second;
 	std::shared_ptr<Named> result;
+	// todo: make a self-registering factory for this
 	switch (die.tag)
 	{
 	case dwarf::DW_TAG::array_type:
@@ -246,6 +282,22 @@ tl::expected<std::shared_ptr<Named>, std::string> Parser::ParseDie(const dwarf::
 		if (class_.has_value() == false)
 			return tl::make_unexpected(std::move(class_.error()));
 		result = std::move(class_.value());
+		break;
+	}
+	case dwarf::DW_TAG::enumeration_type:
+	{
+		auto enum_ = Enum::FromDIE(*this, die);
+		if (enum_.has_value() == false)
+			return tl::make_unexpected(std::move(enum_.error()));
+		result = std::move(enum_.value());
+		break;
+	}
+	case dwarf::DW_TAG::enumerator:
+	{
+		auto enumerator = Enumerator::FromDIE(die);
+		if (enumerator.has_value() == false)
+			return tl::make_unexpected(std::move(enumerator.error()));
+		result = std::move(enumerator.value());
 		break;
 	}
 	case dwarf::DW_TAG::imported_declaration:
