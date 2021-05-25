@@ -20,7 +20,7 @@ tl::expected<std::shared_ptr<Array>, std::string> Array::FromDIE(Parser& parser,
 	// parse the type
 	auto parsedType = parser.ParseDie(type.as_reference());
 	if (parsedType.has_value() == false)
-		return tl::make_unexpected(parsedType.error());
+		return tl::make_unexpected(std::move(parsedType.error()));
 	if (parsedType->get()->GetBasicType() != BasicType::Type)
 		return tl::make_unexpected("An array's type was not a type!");
 	// get the child, which contains size
@@ -47,9 +47,9 @@ tl::expected<std::shared_ptr<Class>, std::string> Class::FromDIE(
 	for (const auto& child : die)
 	{
 		// parse the child
-		const auto parsedChild = parser.ParseDie(child);
+		auto parsedChild = parser.ParseDie(child);
 		if (parsedChild.has_value() == false)
-			return tl::make_unexpected(parsedChild.error());
+			return tl::make_unexpected(std::move(parsedChild.error()));
 	}
 	return result;
 
@@ -66,9 +66,9 @@ tl::expected<std::shared_ptr<Namespace>, std::string> Namespace::FromDIE(
 	for (const auto& child : die)
 	{
 		// parse the child
-		const auto parsedChild = parser.ParseDie(child);
+		auto parsedChild = parser.ParseDie(child);
 		if (parsedChild.has_value() == false)
-			return tl::make_unexpected(parsedChild.error());
+			return tl::make_unexpected(std::move(parsedChild.error()));
 	}
 	return result;
 }
@@ -78,7 +78,7 @@ tl::expected<std::shared_ptr<Struct>, std::string> Struct::FromDIE(
 {
 	auto class_ = Class::FromDIE(parser, die);
 	if (class_.has_value() == false)
-		return tl::make_unexpected(class_.error());
+		return tl::make_unexpected(std::move(class_.error()));
 	return std::shared_ptr<Struct>(new Struct(std::move(*class_.value())));
 }
 
@@ -103,7 +103,7 @@ tl::expected<std::shared_ptr<Value>, std::string> Value::FromDIE(Parser& parser,
 	// parse the type
 	auto parsedType = parser.ParseDie(type.as_reference());
 	if (parsedType.has_value() == false)
-		return tl::make_unexpected(parsedType.error());
+		return tl::make_unexpected(std::move(parsedType.error()));
 	if (parsedType.value()->GetBasicType() != BasicType::Type)
 		return tl::make_unexpected("A value's type was not a type!");
 	return std::shared_ptr<Value>(new Value(
@@ -116,9 +116,9 @@ std::optional<std::string> Parser::ParseDWARF(const dwarf::dwarf& data) noexcept
 {
 	for (const auto& compilationUnit : data.compilation_units())
 	{
-		if (const auto res = ParseCompilationUnit(compilationUnit);
+		if (auto res = ParseCompilationUnit(compilationUnit); 
 			res.has_value() == true)
-			return res.value();
+			return std::move(res.value());
 	}
 	return std::nullopt;
 }
@@ -127,9 +127,8 @@ std::optional<std::string> Parser::ParseCompilationUnit(const dwarf::compilation
 {
 	for (const auto& die : unit.root())
 	{
-		if (const auto res = ParseDie(die);
-			res.has_value() == false)
-			return res.error();
+		if (auto res = ParseDie(die); res.has_value() == false)
+			return std::move(res.error());
 	}
 	return std::nullopt;
 }
@@ -147,7 +146,7 @@ tl::expected<std::shared_ptr<Named>, std::string> Parser::ParseDie(const dwarf::
 	{
 		auto array_ = Array::FromDIE(*this, die);
 		if (array_.has_value() == false)
-			return tl::make_unexpected(array_.error());
+			return tl::make_unexpected(std::move(array_.error()));
 		result = std::move(array_.value());
 		break;
 	}
@@ -155,7 +154,7 @@ tl::expected<std::shared_ptr<Named>, std::string> Parser::ParseDie(const dwarf::
 	{
 		auto type = Type::FromDIE(die);
 		if (type.has_value() == false)
-			return tl::make_unexpected(type.error());
+			return tl::make_unexpected(std::move(type.error()));
 		result = std::move(type.value());
 		break;
 	}
@@ -163,7 +162,7 @@ tl::expected<std::shared_ptr<Named>, std::string> Parser::ParseDie(const dwarf::
 	{
 		auto class_ = Class::FromDIE(*this, die);
 		if (class_.has_value() == false)
-			return tl::make_unexpected(class_.error());
+			return tl::make_unexpected(std::move(class_.error()));
 		result = std::move(class_.value());
 		break;
 	}
@@ -171,7 +170,7 @@ tl::expected<std::shared_ptr<Named>, std::string> Parser::ParseDie(const dwarf::
 	{
 		auto value = Value::FromDIE(*this, die);
 		if (value.has_value() == false)
-			return tl::make_unexpected(value.error());
+			return tl::make_unexpected(std::move(value.error()));
 		result = std::move(value.value());
 		break;
 	}
@@ -179,7 +178,7 @@ tl::expected<std::shared_ptr<Named>, std::string> Parser::ParseDie(const dwarf::
 	{
 		auto namespace_ = Namespace::FromDIE(*this, die);
 		if (namespace_.has_value() == false)
-			return tl::make_unexpected(namespace_.error());
+			return tl::make_unexpected(std::move(namespace_.error()));
 		result = std::move(namespace_.value());
 		break;
 	}
@@ -187,7 +186,7 @@ tl::expected<std::shared_ptr<Named>, std::string> Parser::ParseDie(const dwarf::
 	{
 		auto struct_ = Struct::FromDIE(*this, die);
 		if (struct_.has_value() == false)
-			return tl::make_unexpected(struct_.error());
+			return tl::make_unexpected(std::move(struct_.error()));
 		result = std::move(struct_.value());
 		break;
 	}
