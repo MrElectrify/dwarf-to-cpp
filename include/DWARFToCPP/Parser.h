@@ -62,6 +62,8 @@ namespace DWARFToCPP
 	};
 
 	class Enum;
+	class Typed;
+	class Value;
 
 	class Enumerator : public Named
 	{
@@ -109,6 +111,28 @@ namespace DWARFToCPP
 		std::unordered_map<std::string, std::shared_ptr<Named>> m_namedConcepts;
 	};
 
+	class SubProgram : public Named
+	{
+	public:
+		/// @brief Creates a subprogram from a DIE entry
+		/// @param parser The parser
+		/// @param die The DIE entry
+		/// @return The subprogram, or the error
+		static tl::expected<std::shared_ptr<SubProgram>, std::string> FromDIE(
+			Parser& parser, const dwarf::die& die) noexcept;
+	private:
+		/// @tparam Str The string type
+		/// @param returnType The return type of the subprogram
+		/// @param name The name of the subprogram
+		template<typename Str>
+		SubProgram(std::optional<std::shared_ptr<Typed>> returnType, Str&& name) noexcept :
+			Named(Named::Type::SubProgram, std::forward<Str>(name)),
+			m_returnType(std::move(returnType)) {}
+
+		std::optional<std::shared_ptr<Typed>> m_returnType;
+		std::vector<std::shared_ptr<Value>> m_parameters;
+	};
+
 	class Typed : public Named
 	{
 	public:
@@ -119,8 +143,12 @@ namespace DWARFToCPP
 			Class,
 			Enum,
 			Pointer,
+			PointerToMember,
 			TypeDef
 		};
+
+		/// @return The type code of the typed concept
+		TypeCode GetTypeCode() const noexcept { return m_typeCode; }
 	protected:
 		/// @tparam Str The string type
 		/// @param name The name's type
@@ -198,7 +226,7 @@ namespace DWARFToCPP
 
 		dwarf::DW_TAG m_classType;
 		std::vector<std::pair<std::shared_ptr<Named>, Accessibility>> m_members;
-		std::vector<std::weak_ptr<Class>> m_parentClasses;
+		std::vector<std::pair<std::shared_ptr<Class>, Accessibility>> m_parentClasses;
 	};
 
 	class Enum : public Typed
@@ -235,6 +263,27 @@ namespace DWARFToCPP
 			Typed(TypeCode::Pointer, ""), m_type(std::move(type)) {}
 
 		std::shared_ptr<Typed> m_type;
+	};
+
+	class PointerToMember : public Typed
+	{
+	public:
+		/// @brief Creates a pointer from a DIE entry
+		/// @param parser The parser
+		/// @param die The DIE entry
+		/// @return The pointer, or the error
+		static tl::expected<std::shared_ptr<PointerToMember>, std::string> FromDIE(
+			Parser& parser, const dwarf::die& die) noexcept;
+	private:
+		/// @param type The type of the pointer
+		PointerToMember(std::shared_ptr<Class> containingType,
+			std::shared_ptr<SubProgram> functionType) noexcept :
+			Typed(TypeCode::PointerToMember, ""), 
+			m_containingType(std::move(containingType)),
+			m_functionType(std::move(functionType)) {}
+
+		std::shared_ptr<Class> m_containingType;
+		std::shared_ptr<SubProgram> m_functionType;
 	};
 
 	class TypeDef : public Typed
@@ -280,28 +329,6 @@ namespace DWARFToCPP
 		std::weak_ptr<Typed> m_type;
 	};
 
-	class SubProgram : public Named
-	{
-	public:
-		/// @brief Creates a subprogram from a DIE entry
-		/// @param parser The parser
-		/// @param die The DIE entry
-		/// @return The subprogram, or the error
-		static tl::expected<std::shared_ptr<SubProgram>, std::string> FromDIE(
-			Parser& parser, const dwarf::die& die) noexcept;
-	private:
-		/// @tparam Str The string type
-		/// @param returnType The return type of the subprogram
-		/// @param name The name of the subprogram
-		template<typename Str>
-		SubProgram(std::optional<std::shared_ptr<Typed>> returnType, Str&& name) noexcept :
-			Named(Named::Type::SubProgram, std::forward<Str>(name)),
-			m_returnType(std::move(returnType)) {}
-
-		std::optional<std::shared_ptr<Typed>> m_returnType;
-		std::vector<std::shared_ptr<Value>> m_parameters;
-	};
-
 	class Parser
 	{
 	public:
@@ -322,6 +349,7 @@ namespace DWARFToCPP
 		friend Enum;
 		friend Namespace;
 		friend Pointer;
+		friend PointerToMember;
 		friend SubProgram;
 		friend TypeDef;
 		friend Value;

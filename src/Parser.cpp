@@ -46,24 +46,41 @@ tl::expected<std::shared_ptr<Class>, std::string> Class::FromDIE(
 	bool publicDefault = (die.tag != dwarf::DW_TAG::class_type);
 	std::shared_ptr<Class> result(new Class(die.tag, std::move(className)));
 	// a namespace contains many children. parse each one
-	for (const auto& child : die)
+	for (auto child : die)
 	{
-		// parse the child
+		// if accessibility is unstated, it uses the defaults
+		Accessibility accessibility = (publicDefault == true) ? Accessibility::Public : Accessibility::Private;
+		auto accessibilityAttr = child.resolve(dwarf::DW_AT::accessibility);
+		if (accessibilityAttr.valid() == true)
+			accessibility = static_cast<Accessibility>(accessibilityAttr.as_uconstant());
+		if (child.tag == dwarf::DW_TAG::inheritance)
+		{
+			auto inheritanceType = child.resolve(dwarf::DW_AT::type);
+			if (inheritanceType.valid() == false)
+				return tl::make_unexpected("An class inheritance did not have a type!");
+			auto parsedInheritanceType = parser.ParseDie(inheritanceType.as_reference());
+			if (parsedInheritanceType.has_value() == false)
+				return tl::make_unexpected(std::move(parsedInheritanceType.error()));
+			if (parsedInheritanceType.value()->GetType() != Type::Typed)
+				return tl::make_unexpected("A class inheritance was not a type!");
+			auto parentClass = std::static_pointer_cast<Typed>(std::move(parsedInheritanceType.value()));
+			// ensure it is also a class
+			if (parentClass->GetTypeCode() != TypeCode::Class)
+				return tl::make_unexpected("A class inheritance was not a class!");
+			result->m_parentClasses.emplace_back(std::static_pointer_cast<Class>(
+				std::move(parentClass)), accessibility);
+			continue;
+		}
+		// the child is a type. parse it
 		auto parsedChild = parser.ParseDie(child);
 		if (parsedChild.has_value() == false)
 			return tl::make_unexpected(std::move(parsedChild.error()));
 		// make sure the type is not a namespace
 		if (parsedChild.value()->GetType() == Type::Namespace)
 			return tl::make_unexpected("A class had a nested namespace!");
-		// if accessibility is unstated, it uses the defaults
-		Accessibility accessibility = (publicDefault == true) ? Accessibility::Public : Accessibility::Private;
-		auto accessibilityAttr = child.resolve(dwarf::DW_AT::accessibility);
-		if (accessibilityAttr.valid() == true)
-			accessibility = static_cast<Accessibility>(accessibilityAttr.as_uconstant());
 		result->m_members.emplace_back(std::move(parsedChild.value()), accessibility);
 	}
 	return result;
-
 }
 
 tl::expected<std::shared_ptr<Enum>, std::string> Enum::FromDIE(
@@ -138,6 +155,30 @@ tl::expected<std::shared_ptr<Pointer>, std::string> Pointer::FromDIE(
 		return tl::make_unexpected(std::move(parsedType.error()));
 	return std::shared_ptr<Pointer>(new Pointer(
 		std::static_pointer_cast<Typed>(std::move(parsedType.value()))));
+}
+
+tl::expected<std::shared_ptr<PointerToMember>, std::string> PointerToMember::FromDIE(
+	Parser& parser, const dwarf::die& die) noexcept
+{
+	auto containingType = die.resolve(dwarf::DW_AT::containing_type);
+	if (containingType.valid() == false)
+		return tl::make_unexpected("A pointer-to-member was missing a containing type!");
+	auto parsedContainingType = parser.ParseDie(containingType.as_reference());
+	if (parsedContainingType.has_value() == false)
+		return tl::make_unexpected(std::move(parsedContainingType.error()));
+	if (parsedContainingType.value()->GetType() != Type::Typed)
+		return tl::make_unexpected("A pointer-to-member had a non-typed containing type!");
+	auto functionType = die.resolve(dwarf::DW_AT::type);
+	if (functionType.valid() == false)
+		return tl::make_unexpected("A pointer-to-member was missing a function type!");
+	auto parsedFunctionType = parser.ParseDie(functionType.as_reference());
+	if (parsedFunctionType.has_value() == false)
+		return tl::make_unexpected(std::move(parsedFunctionType.error()));
+	if (parsedFunctionType.value()->GetType() != Type::SubProgram)
+		return tl::make_unexpected("A pointer-to-member had a non-type function!");
+	return std::shared_ptr<PointerToMember>(new PointerToMember(
+		std::static_pointer_cast<Class>(std::move(parsedContainingType.value())),
+		std::static_pointer_cast<SubProgram>(std::move(parsedFunctionType.value()))));
 }
 
 tl::expected<std::shared_ptr<SubProgram>, std::string> SubProgram::FromDIE(
@@ -329,6 +370,14 @@ tl::expected<std::shared_ptr<Named>, std::string> Parser::ParseDie(const dwarf::
 		if (pointer.has_value() == false)
 			return tl::make_unexpected(std::move(pointer.error()));
 		result = std::move(pointer.value());
+		break;
+	}
+	case dwarf::DW_TAG::ptr_to_member_type:
+	{
+		auto pointerToMember = PointerToMember::FromDIE(*this, die);
+		if (pointerToMember.has_value() == false)
+			return tl::make_unexpected(std::move(pointerToMember.error()));
+		result = std::move(pointerToMember.value());
 		break;
 	}
 	case dwarf::DW_TAG::subprogram:
