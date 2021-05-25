@@ -29,17 +29,18 @@ namespace DWARFToCPP
 		enum class BasicType
 		{
 			Namespace,
+			SubProgram,
 			Type,
 			Value
 		};
-
+	protected:
 		/// @tparam Str The string type
 		/// @param basicType The basic type of the named concept
 		/// @param name The name of the concept
 		template<typename Str>
 		Named(BasicType basicType, Str&& name) noexcept :
 			m_basicType(basicType), m_name(std::forward<Str>(name)) {}
-
+	public:
 		/// @return The basic type of the named concept
 		BasicType GetBasicType() const noexcept { return m_basicType; }
 		/// @return The name of the concept
@@ -133,31 +134,38 @@ namespace DWARFToCPP
 			Parser& parser, const dwarf::die& die) noexcept;
 	protected:
 		/// @tparam Str The string type
+		/// @param struct_ Whether or not the class is considered a struct
 		/// @param name The name
 		template<typename Str>
-		Class(Str&& name) noexcept : Type(
-			Type::TypeCode::Class, std::forward<Str>(name)) {}
+		Class(bool struct_, Str&& name) noexcept : Type(
+			Type::TypeCode::Class, std::forward<Str>(name)),
+			m_struct(struct_) {}
 
+		bool m_struct;
+		std::vector<std::shared_ptr<Named>> m_members;
 		std::vector<std::weak_ptr<Class>> m_parentClasses;
-		std::vector<Value> m_members;
 	};
 
-	class Struct : public Class
+	class SubProgram : public Named
 	{
 	public:
-		/// @brief Creates a struct from a DIE entry. Parses any
-		/// types and other named concepts within
+		/// @brief Creates a subprogram from a DIE entry
 		/// @param parser The parser
 		/// @param die The DIE entry
-		/// @return The struct, or the error
-		static tl::expected<std::shared_ptr<Struct>, std::string> FromDIE(
+		/// @return The subprogram, or the error
+		static tl::expected<std::shared_ptr<SubProgram>, std::string> FromDIE(
 			Parser& parser, const dwarf::die& die) noexcept;
 	private:
-		Struct(Class&& class_) noexcept : Class(std::move(class_)) {}
 		/// @tparam Str The string type
-		/// @param name The name's type
+		/// @param returnType The return type of the subprogram
+		/// @param name The name of the subprogram
 		template<typename Str>
-		Struct(Str&& name) noexcept : Class(std::forward<Str>(name)) {}
+		SubProgram(std::optional<std::weak_ptr<Type>> returnType, Str&& name) noexcept :
+			Named(Named::BasicType::Value, std::forward<Str>(name)),
+			m_returnType(std::move(returnType)) {}
+
+		std::optional<std::weak_ptr<Type>> m_returnType;
+		std::vector<std::shared_ptr<Value>> m_parameters;
 	};
 
 	class Namespace : public Named
@@ -173,6 +181,10 @@ namespace DWARFToCPP
 		/// @return The type, or the error
 		static tl::expected<std::shared_ptr<Namespace>, std::string> FromDIE(
 			Parser& parser, const dwarf::die& die) noexcept;
+
+		/// @brief Adds a named concept to the namespace
+		/// @param named The named concept
+		void AddNamed(std::shared_ptr<Named> named) noexcept;
 	private:
 		/// @tparam Str The string type
 		/// @param name The name's type
@@ -180,12 +192,7 @@ namespace DWARFToCPP
 		Namespace(Str&& name) noexcept : Named(
 			Named::BasicType::Namespace, std::forward<Str>(name)) {}
 
-		// namespaces contain other namespaces of course, here's how we will traverse them
-		std::weak_ptr<Namespace> m_parentNamespace;
-		std::unordered_map<std::string, std::shared_ptr<Namespace>> m_nestedNamespaces;
-		// namespaces can contain both types and instances of types
-		std::unordered_map<std::string, std::shared_ptr<Type>> m_types;
-		std::unordered_map<std::string, std::shared_ptr<Value>> m_values;
+		std::unordered_map<std::string, std::shared_ptr<Named>> m_namedConcepts;
 	};
 
 	class Parser
@@ -205,6 +212,7 @@ namespace DWARFToCPP
 		friend Array;
 		friend Class;
 		friend Namespace;
+		friend SubProgram;
 		friend Type;
 		friend Value;
 

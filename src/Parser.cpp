@@ -42,7 +42,8 @@ tl::expected<std::shared_ptr<Class>, std::string> Class::FromDIE(
 	auto name = die.resolve(dwarf::DW_AT::name);
 	if (name.valid() == false)
 		return tl::make_unexpected("A class was missing a name!");
-	std::shared_ptr<Class> result(new Class(name.as_string()));
+	bool struct_ = (die.tag == dwarf::DW_TAG::structure_type);
+	std::shared_ptr<Class> result(new Class(struct_, name.as_string()));
 	// a namespace contains many children. parse each one
 	for (const auto& child : die)
 	{
@@ -50,9 +51,19 @@ tl::expected<std::shared_ptr<Class>, std::string> Class::FromDIE(
 		auto parsedChild = parser.ParseDie(child);
 		if (parsedChild.has_value() == false)
 			return tl::make_unexpected(std::move(parsedChild.error()));
+		// make sure the type is not a namespace
+		if (parsedChild.value()->GetBasicType() == BasicType::Namespace)
+			return tl::make_unexpected("A class had a nested namespace!");
+		result->m_members.push_back(std::move(parsedChild.value()));
 	}
 	return result;
 
+}
+
+void Namespace::AddNamed(std::shared_ptr<Named> named) noexcept
+{
+	auto name = named->Name();
+	m_namedConcepts.emplace(std::move(name), std::move(named));
 }
 
 tl::expected<std::shared_ptr<Namespace>, std::string> Namespace::FromDIE(
@@ -69,17 +80,45 @@ tl::expected<std::shared_ptr<Namespace>, std::string> Namespace::FromDIE(
 		auto parsedChild = parser.ParseDie(child);
 		if (parsedChild.has_value() == false)
 			return tl::make_unexpected(std::move(parsedChild.error()));
+		auto childName = parsedChild.value()->Name();
+		result->m_namedConcepts.emplace(std::move(childName), std::move(parsedChild.value()));
 	}
 	return result;
 }
 
-tl::expected<std::shared_ptr<Struct>, std::string> Struct::FromDIE(
+tl::expected<std::shared_ptr<SubProgram>, std::string> SubProgram::FromDIE(
 	Parser& parser, const dwarf::die& die) noexcept
 {
-	auto class_ = Class::FromDIE(parser, die);
-	if (class_.has_value() == false)
-		return tl::make_unexpected(std::move(class_.error()));
-	return std::shared_ptr<Struct>(new Struct(std::move(*class_.value())));
+	auto name = die.resolve(dwarf::DW_AT::name);
+	if (name.valid() == false)
+		return tl::make_unexpected("A subprogram was missing a name!");
+	// get the return type. it's under type. if type
+	// doesn't exist, return type is void
+	std::optional<std::weak_ptr<Type>> returnType;
+	auto type = die.resolve(dwarf::DW_AT::type);
+	if (type.valid() == true)
+	{
+		// parse the return type
+		auto parsedType = parser.ParseDie(type.as_reference());
+		if (parsedType.has_value() == false)
+			return tl::make_unexpected(std::move(parsedType.error()));
+		if (parsedType.value()->GetBasicType() != BasicType::Type)
+			return tl::make_unexpected("A subprogram has a non-type return type!");
+		returnType = std::static_pointer_cast<Type>(parsedType.value());
+	}
+	std::shared_ptr<SubProgram> result(new SubProgram(std::move(returnType), name.as_string()));
+	// loop through the parameters, which are the sibling's children
+	for (const auto param : die)
+	{
+		if (param.tag != dwarf::DW_TAG::formal_parameter)
+			continue;
+		// parse the parameter as a Value, because it has the same entries
+		auto value = Value::FromDIE(parser, param);
+		if (value.has_value() == false)
+			return tl::make_unexpected(std::move(value.error()));
+		result->m_parameters.push_back(std::move(value.value()));
+	}
+	return result;
 }
 
 tl::expected<std::shared_ptr<Type>, std::string> Type::FromDIE(const dwarf::die& die) noexcept
@@ -129,6 +168,8 @@ std::optional<std::string> Parser::ParseCompilationUnit(const dwarf::compilation
 	{
 		if (auto res = ParseDie(die); res.has_value() == false)
 			return std::move(res.error());
+		else
+			m_globalNamespace.AddNamed(std::move(res.value()));
 	}
 	return std::nullopt;
 }
@@ -184,10 +225,18 @@ tl::expected<std::shared_ptr<Named>, std::string> Parser::ParseDie(const dwarf::
 	}
 	case dwarf::DW_TAG::structure_type:
 	{
-		auto struct_ = Struct::FromDIE(*this, die);
+		auto struct_ = Class::FromDIE(*this, die);
 		if (struct_.has_value() == false)
 			return tl::make_unexpected(std::move(struct_.error()));
 		result = std::move(struct_.value());
+		break;
+	}
+	case dwarf::DW_TAG::subprogram:
+	{
+		auto subprogram = SubProgram::FromDIE(*this, die);
+		if (subprogram.has_value() == false)
+			return tl::make_unexpected(std::move(subprogram.error()));
+		result = std::move(subprogram.value());
 		break;
 	}
 	default:
