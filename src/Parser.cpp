@@ -78,9 +78,36 @@ tl::expected<std::shared_ptr<Class>, std::string> Class::FromDIE(
 		// make sure the type is not a namespace
 		if (parsedChild.value()->GetType() == Type::Namespace)
 			return tl::make_unexpected("A class had a nested namespace!");
+		if (child.tag == dwarf::DW_TAG::template_type_parameter ||
+			child.tag == dwarf::DW_TAG::template_value_parameter)
+		{
+			// make sure it's a value type
+			if (parsedChild.value()->GetType() != Type::Value)
+				return tl::make_unexpected("A class had an invalid template type!");
+			result->m_templateParameters.push_back(std::static_pointer_cast<Value>(
+				std::move(parsedChild.value())));
+			continue;
+		}
+		// it's a normal member
 		result->m_members.emplace_back(std::move(parsedChild.value()), accessibility);
 	}
-	return result;
+	return std::move(result);
+}
+
+tl::expected<std::shared_ptr<ConstType>, std::string> ConstType::FromDIE(
+	Parser& parser, const dwarf::die& die) noexcept
+{
+	// parse the embedded type
+	auto type = die.resolve(dwarf::DW_AT::type);
+	if (type.valid() == false)
+		return tl::make_unexpected("A const type did not have a type!");
+	auto parsedType = parser.ParseDie(type.as_reference());
+	if (parsedType.has_value() == false)
+		return tl::make_unexpected(std::move(parsedType.error()));
+	if (parsedType.value()->GetType() != Type::Typed)
+		return tl::make_unexpected("A const type was not a type!");
+	return std::shared_ptr<ConstType>(new ConstType(
+		std::static_pointer_cast<Typed>(std::move(parsedType.value()))));
 }
 
 tl::expected<std::shared_ptr<Enum>, std::string> Enum::FromDIE(
@@ -101,7 +128,7 @@ tl::expected<std::shared_ptr<Enum>, std::string> Enum::FromDIE(
 		result->m_enumerators.push_back(std::static_pointer_cast<Enumerator>(
 			std::move(enumerator.value())));
 	}
-	return nullptr;
+	return std::move(result);
 }
 
 tl::expected<std::shared_ptr<Enumerator>, std::string> Enumerator::FromDIE(
@@ -141,7 +168,7 @@ tl::expected<std::shared_ptr<Namespace>, std::string> Namespace::FromDIE(
 		auto childName = parsedChild.value()->Name();
 		result->m_namedConcepts.emplace(std::move(childName), std::move(parsedChild.value()));
 	}
-	return result;
+	return std::move(result);
 }
 
 tl::expected<std::shared_ptr<Pointer>, std::string> Pointer::FromDIE(
@@ -184,6 +211,22 @@ tl::expected<std::shared_ptr<PointerToMember>, std::string> PointerToMember::Fro
 		std::static_pointer_cast<SubProgram>(std::move(parsedFunctionType.value()))));
 }
 
+tl::expected<std::shared_ptr<RefType>, std::string> RefType::FromDIE(
+	Parser& parser, const dwarf::die& die) noexcept
+{
+	// parse the embedded type
+	auto type = die.resolve(dwarf::DW_AT::type);
+	if (type.valid() == false)
+		return tl::make_unexpected("A const type did not have a type!");
+	auto parsedType = parser.ParseDie(type.as_reference());
+	if (parsedType.has_value() == false)
+		return tl::make_unexpected(std::move(parsedType.error()));
+	if (parsedType.value()->GetType() != Type::Typed)
+		return tl::make_unexpected("A const type was not a type!");
+	return std::shared_ptr<RefType>(new RefType(
+		std::static_pointer_cast<Typed>(std::move(parsedType.value()))));
+}
+
 tl::expected<std::shared_ptr<SubProgram>, std::string> SubProgram::FromDIE(
 	Parser& parser, const dwarf::die& die) noexcept
 {
@@ -216,7 +259,7 @@ tl::expected<std::shared_ptr<SubProgram>, std::string> SubProgram::FromDIE(
 			return tl::make_unexpected(std::move(value.error()));
 		result->m_parameters.push_back(std::move(value.value()));
 	}
-	return result;
+	return std::move(result);
 }
 
 tl::expected<std::shared_ptr<BasicType>, std::string> 
@@ -331,6 +374,14 @@ tl::expected<std::shared_ptr<Named>, std::string> Parser::ParseDie(const dwarf::
 		result = std::move(class_.value());
 		break;
 	}
+	case dwarf::DW_TAG::const_type:
+	{
+		auto constType = ConstType::FromDIE(*this, die);
+		if (constType.has_value() == false)
+			return tl::make_unexpected(std::move(constType.error()));
+		result = std::move(constType.value());
+		break;
+	}
 	case dwarf::DW_TAG::enumeration_type:
 	{
 		auto enum_ = Enum::FromDIE(*this, die);
@@ -352,6 +403,8 @@ tl::expected<std::shared_ptr<Named>, std::string> Parser::ParseDie(const dwarf::
 		// we don't care about this
 		break;
 	case dwarf::DW_TAG::member:
+	case dwarf::DW_TAG::template_type_parameter:
+	case dwarf::DW_TAG::template_value_parameter:
 	{
 		auto value = Value::FromDIE(*this, die);
 		if (value.has_value() == false)
@@ -381,6 +434,14 @@ tl::expected<std::shared_ptr<Named>, std::string> Parser::ParseDie(const dwarf::
 		if (pointerToMember.has_value() == false)
 			return tl::make_unexpected(std::move(pointerToMember.error()));
 		result = std::move(pointerToMember.value());
+		break;
+	}
+	case dwarf::DW_TAG::reference_type:
+	{
+		auto refType = RefType::FromDIE(*this, die);
+		if (refType.has_value() == false)
+			return tl::make_unexpected(std::move(refType.error()));
+		result = std::move(refType.value());
 		break;
 	}
 	case dwarf::DW_TAG::subprogram:

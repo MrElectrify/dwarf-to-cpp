@@ -141,9 +141,11 @@ namespace DWARFToCPP
 			Array,
 			Basic,
 			Class,
+			ConstType,
 			Enum,
 			Pointer,
 			PointerToMember,
+			RefType,
 			TypeDef
 		};
 
@@ -227,6 +229,24 @@ namespace DWARFToCPP
 		dwarf::DW_TAG m_classType;
 		std::vector<std::pair<std::shared_ptr<Named>, Accessibility>> m_members;
 		std::vector<std::pair<std::shared_ptr<Class>, Accessibility>> m_parentClasses;
+		std::vector<std::shared_ptr<Value>> m_templateParameters;
+	};
+
+	class ConstType : public Typed
+	{
+	public:
+		/// @brief Creates a const type from a DIE entry
+		/// @param parser The parser
+		/// @param die The DIE entry
+		/// @return The const type, or the error
+		static tl::expected<std::shared_ptr<ConstType>, std::string> FromDIE(
+			Parser& parser, const dwarf::die& die) noexcept;
+	private:
+		/// @param type The type of the pointer
+		ConstType(std::shared_ptr<Typed> type) noexcept :
+			Typed(TypeCode::ConstType, ""), m_type(std::move(type)) {}
+
+		std::shared_ptr<Typed> m_type;
 	};
 
 	class Enum : public Typed
@@ -286,6 +306,23 @@ namespace DWARFToCPP
 		std::shared_ptr<SubProgram> m_functionType;
 	};
 
+	class RefType : public Typed
+	{
+	public:
+		/// @brief Creates a ref type from a DIE entry
+		/// @param parser The parser
+		/// @param die The DIE entry
+		/// @return The ref type, or the error
+		static tl::expected<std::shared_ptr<RefType>, std::string> FromDIE(
+			Parser& parser, const dwarf::die& die) noexcept;
+	private:
+		/// @param type The type of the pointer
+		RefType(std::shared_ptr<Typed> type) noexcept :
+			Typed(TypeCode::RefType, ""), m_type(std::move(type)) {}
+
+		std::shared_ptr<Typed> m_type;
+	};
+
 	class TypeDef : public Typed
 	{
 	public:
@@ -322,11 +359,11 @@ namespace DWARFToCPP
 		/// @param type The type of the value
 		/// @param name The name of the value
 		template<typename Str>
-		Value(std::weak_ptr<Typed> type, Str&& name) noexcept :
+		Value(std::shared_ptr<Typed> type, Str&& name) noexcept :
 			Named(Named::Type::Value, std::forward<Str>(name)),
 			m_type(std::move(type)) {}
 
-		std::weak_ptr<Typed> m_type;
+		std::shared_ptr<Typed> m_type;
 	};
 
 	class Parser
@@ -346,11 +383,13 @@ namespace DWARFToCPP
 		friend Array;
 		friend BasicType;
 		friend Class;
+		friend ConstType;
 		friend Enum;
 		friend Namespace;
 		friend Pointer;
 		friend PointerToMember;
 		friend SubProgram;
+		friend RefType;
 		friend TypeDef;
 		friend Value;
 
