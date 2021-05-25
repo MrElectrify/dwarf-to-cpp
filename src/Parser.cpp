@@ -163,11 +163,14 @@ tl::expected<std::shared_ptr<PointerToMember>, std::string> PointerToMember::Fro
 	auto containingType = die.resolve(dwarf::DW_AT::containing_type);
 	if (containingType.valid() == false)
 		return tl::make_unexpected("A pointer-to-member was missing a containing type!");
-	auto parsedContainingType = parser.ParseDie(containingType.as_reference());
-	if (parsedContainingType.has_value() == false)
-		return tl::make_unexpected(std::move(parsedContainingType.error()));
-	if (parsedContainingType.value()->GetType() != Type::Typed)
+	auto parsedContainingNamed = parser.ParseDie(containingType.as_reference());
+	if (parsedContainingNamed.has_value() == false)
+		return tl::make_unexpected(std::move(parsedContainingNamed.error()));
+	if (parsedContainingNamed.value()->GetType() != Type::Typed)
 		return tl::make_unexpected("A pointer-to-member had a non-typed containing type!");
+	auto parsedContainingType = std::static_pointer_cast<Typed>(std::move(parsedContainingNamed.value()));
+	if (parsedContainingType->GetTypeCode() != TypeCode::Class)
+		return tl::make_unexpected("A pointer-to-member's containing type was not class-based!");
 	auto functionType = die.resolve(dwarf::DW_AT::type);
 	if (functionType.valid() == false)
 		return tl::make_unexpected("A pointer-to-member was missing a function type!");
@@ -177,7 +180,7 @@ tl::expected<std::shared_ptr<PointerToMember>, std::string> PointerToMember::Fro
 	if (parsedFunctionType.value()->GetType() != Type::SubProgram)
 		return tl::make_unexpected("A pointer-to-member had a non-type function!");
 	return std::shared_ptr<PointerToMember>(new PointerToMember(
-		std::static_pointer_cast<Class>(std::move(parsedContainingType.value())),
+		std::static_pointer_cast<Class>(std::move(parsedContainingType)),
 		std::static_pointer_cast<SubProgram>(std::move(parsedFunctionType.value()))));
 }
 
