@@ -34,6 +34,7 @@ std::optional<std::string> Array::ParseDIE(Parser& parser,
 		return "An array's subrange info was missing the size!";
 	// the subrange size + 1 is the array's size
 	m_size = size.as_uconstant();
+	SetName(m_type.lock()->GetName() + '[' + std::to_string(m_size) + ']');
 	return std::nullopt;
 }
 
@@ -43,7 +44,7 @@ std::optional<std::string> BasicType::ParseDIE(Parser& parser,
 	auto name = die.resolve(dwarf::DW_AT::name);
 	if (name.valid() == false)
 		return "A basic type was missing a name!";
-	Name(name.as_string());
+	SetName(name.as_string());
 	return std::nullopt;
 }
 
@@ -54,7 +55,9 @@ std::optional<std::string> Class::ParseDIE(Parser& parser,
 	auto name = die.resolve(dwarf::DW_AT::name);
 	std::string className;
 	if (name.valid() == true)
-		Name(name.as_string());
+		SetName(name.as_string());
+	else
+		SetName(std::to_string(std::hash<void*>()(this)));
 	bool publicDefault = (die.tag != dwarf::DW_TAG::class_type);
 	// a namespace contains many children. parse each one
 	for (auto child : die)
@@ -92,9 +95,7 @@ std::optional<std::string> Class::ParseDIE(Parser& parser,
 		if (child.tag == dwarf::DW_TAG::template_type_parameter ||
 			child.tag == dwarf::DW_TAG::template_value_parameter)
 		{
-			// make sure it's a value type
-			if (parsedChild.value()->GetType() != Type::Value)
-				return "A class had an invalid template type!";
+			// it is guaranteed to be a named type
 			m_templateParameters.push_back(std::static_pointer_cast<Value>(
 				std::move(parsedChild.value())));
 			continue;
@@ -118,6 +119,7 @@ std::optional<std::string> ConstType::ParseDIE(Parser& parser,
 	if (parsedType.value()->GetType() != Type::Typed)
 		return "A const type was not a type!";
 	m_type = std::static_pointer_cast<Typed>(std::move(parsedType.value()));
+	SetName("const " + m_type.lock()->GetName());
 	return std::nullopt;
 }
 
@@ -127,7 +129,7 @@ std::optional<std::string> Enum::ParseDIE(Parser& parser,
 	auto name = die.resolve(dwarf::DW_AT::name);
 	if (name.valid() == false)
 		return "An enum was missing a name!";
-	Name(name.as_string());
+	SetName(name.as_string());
 	// parse the enumerators
 	for (auto child : die)
 	{
@@ -148,7 +150,7 @@ std::optional<std::string> Enumerator::ParseDIE(Parser& parser,
 	auto name = die.resolve(dwarf::DW_AT::name);
 	if (name.valid() == false)
 		return "An enumerator was missing a name!";
-	Name(name.as_string());
+	SetName(name.as_string());
 	auto value = die.resolve(dwarf::DW_AT::const_value);
 	if (value.valid() == false)
 		return "An enumerator was missing a value!";
@@ -156,11 +158,32 @@ std::optional<std::string> Enumerator::ParseDIE(Parser& parser,
 	return std::nullopt;
 }
 
+std::optional<std::string> NamedType::ParseDIE(Parser& parser,
+	const dwarf::die& die) noexcept
+{
+	// the name is actually kinda misleading. it may or
+	// may not be named
+	auto name = die.resolve(dwarf::DW_AT::name);
+	if (name.valid() == true)
+		SetName(name.as_string());
+	// it does, however, have a base type
+	auto type = die.resolve(dwarf::DW_AT::type);
+	if (type.valid() == false)
+		return "A named type did not have a type!";
+	auto parsedType = parser.ParseDIE(type.as_reference());
+	if (parsedType.has_value() == false)
+		return std::move(parsedType.error());
+	if (parsedType.value()->GetType() != Type::Typed)
+		return "A named type's type was not a type!";
+	m_type = std::static_pointer_cast<Typed>(std::move(parsedType.value()));
+	return std::nullopt;
+}
+
 void Namespace::AddNamed(const std::shared_ptr<Named>& named) noexcept
 {
 	if (named == nullptr)
 		return;
-	auto name = named->Name();
+	auto name = named->GetName();
 	m_namedConcepts.emplace(std::move(name), named);
 }
 
@@ -170,7 +193,7 @@ std::optional<std::string> Namespace::ParseDIE(Parser& parser,
 	auto name = die.resolve(dwarf::DW_AT::name);
 	if (name.valid() == false)
 		return "A namespace was missing a name!";
-	Name(name.as_string());
+	SetName(name.as_string());
 	// a namespace contains many children. parse each one
 	for (const auto& child : die)
 	{
@@ -178,7 +201,7 @@ std::optional<std::string> Namespace::ParseDIE(Parser& parser,
 		auto parsedChild = parser.ParseDIE(child);
 		if (parsedChild.has_value() == false)
 			return std::move(parsedChild.error());
-		auto childName = parsedChild.value()->Name();
+		auto childName = parsedChild.value()->GetName();
 		m_namedConcepts.emplace(std::move(childName), parsedChild.value());
 	}
 	return std::nullopt;
@@ -196,6 +219,7 @@ std::optional<std::string> Pointer::ParseDIE(Parser& parser,
 	if (parsedType.value()->GetType() != Type::Typed)
 		return "A pointer was not in reference to a type!";
 	m_type = std::static_pointer_cast<Typed>(std::move(parsedType.value()));
+	SetName(m_type.lock()->GetName() + '*');
 	return std::nullopt;
 }
 
@@ -223,6 +247,7 @@ std::optional<std::string> PointerToMember::ParseDIE(Parser& parser,
 	if (parsedFunctionType.value()->GetType() != Type::SubProgram)
 		return "A pointer-to-member had a non-type function!";
 	m_functionType = std::static_pointer_cast<SubProgram>(std::move(parsedFunctionType.value()));
+	// todo: construct a pointer-to-member type
 	return std::nullopt;
 }
 
@@ -239,6 +264,7 @@ std::optional<std::string> RefType::ParseDIE(Parser& parser,
 	if (parsedType.value()->GetType() != Type::Typed)
 		return "A const type was not a type!";
 	m_type = std::static_pointer_cast<Typed>(std::move(parsedType.value()));
+	SetName(m_type.lock()->GetName() + '&');
 	return std::nullopt;
 }
 
@@ -248,7 +274,7 @@ std::optional<std::string> SubProgram::ParseDIE(Parser& parser,
 	auto name = die.resolve(dwarf::DW_AT::name);
 	if (name.valid() == false)
 		return "A subprogram was missing a name!";
-	Name(name.as_string());
+	SetName(name.as_string());
 	// get the return type. it's under type. if type
 	// doesn't exist, return type is void
 	std::optional<std::shared_ptr<Typed>> returnType;
@@ -271,8 +297,8 @@ std::optional<std::string> SubProgram::ParseDIE(Parser& parser,
 		auto parsedParam = parser.ParseDIE(param);
 		if (parsedParam.has_value() == false)
 			return std::move(parsedParam.error());
-		if (parsedParam.value()->GetType() != Type::Value)
-			return "A subprogram's parameter was a non-value type";
+		if (parsedParam.value()->GetType() != Type::Typed)
+			return "A subprogram's parameter was a non-type";
 		m_parameters.push_back(std::static_pointer_cast<Value>(
 			std::move(parsedParam.value())));
 	}
@@ -285,7 +311,7 @@ std::optional<std::string> TypeDef::ParseDIE(Parser& parser,
 	auto name = die.resolve(dwarf::DW_AT::name);
 	if (name.valid() == false)
 		return "A typedef was missing a name!";
-	Name(name.as_string());
+	SetName(name.as_string());
 	// find the type
 	auto type = die.resolve(dwarf::DW_AT::type);
 	if (type.valid() == false)
@@ -312,7 +338,7 @@ std::optional<std::string> Value::ParseDIE(Parser& parser,
 			return "A value was missing a name!";
 	}
 	else
-		Name(name.as_string());
+		SetName(name.as_string());
 	// find the type
 	auto type = die.resolve(dwarf::DW_AT::type);
 	if (type.valid() == false)
@@ -383,14 +409,16 @@ tl::expected<std::shared_ptr<Named>, std::string> Parser::ParseDIE(const dwarf::
 		result = std::make_shared<Enumerator>();
 		break;
 	case dwarf::DW_TAG::formal_parameter:
-	case dwarf::DW_TAG::member:
 	case dwarf::DW_TAG::template_type_parameter:
 	case dwarf::DW_TAG::template_value_parameter:
-		result = std::make_shared<Value>();
+		result = std::make_shared<NamedType>();
 		break;
 	case dwarf::DW_TAG::imported_declaration:
 	case dwarf::DW_TAG::imported_module:
 		// we don't care about this
+		break;
+	case dwarf::DW_TAG::member:
+		result = std::make_shared<Value>();
 		break;
 	case dwarf::DW_TAG::namespace_:
 		result = std::make_shared<Namespace>();

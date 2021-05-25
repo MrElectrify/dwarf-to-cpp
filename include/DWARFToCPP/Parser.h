@@ -55,17 +55,16 @@ namespace DWARFToCPP
 		/// @param type The basic type of the named concept
 		Named(Type type) noexcept :
 			m_type(type) {}
-
 	public:
 		/// @return The basic type of the named concept
 		Type GetType() const noexcept { return m_type; }
 		/// @return The name of the concept
-		const std::string& Name() const noexcept { return m_name; }
+		const std::string& GetName() const noexcept { return m_name; }
 	protected:
 		/// @tparam Str The string type
 		/// @param name The name of the concept
 		template<typename Str>
-		void Name(Str&& name) noexcept { m_name = std::forward<Str>(name); }
+		void SetName(Str&& name) noexcept { m_name = std::forward<Str>(name); }
 	private:
 		Type m_type;
 		std::string m_name;
@@ -136,6 +135,7 @@ namespace DWARFToCPP
 			Class,
 			ConstType,
 			Enum,
+			NamedType,
 			Pointer,
 			PointerToMember,
 			RefType,
@@ -148,8 +148,6 @@ namespace DWARFToCPP
 
 		/// @return The type code of the typed concept
 		TypeCode GetTypeCode() const noexcept { return m_typeCode; }
-	protected:
-		using Named::Name;
 	private:
 		TypeCode m_typeCode;
 	};
@@ -171,7 +169,7 @@ namespace DWARFToCPP
 		/// @return The type of the array
 		const std::weak_ptr<Typed>& Type() const noexcept { return m_type; }
 	private:
-		size_t m_size;
+		size_t m_size = 0;
 		std::weak_ptr<Typed> m_type;
 	};
 
@@ -225,7 +223,7 @@ namespace DWARFToCPP
 		virtual std::optional<std::string> ParseDIE(Parser& parser,
 			const dwarf::die& die) noexcept;
 	private:
-		std::weak_ptr<Typed> m_type;
+		std::weak_ptr<Named> m_type;
 	};
 
 	class Enum : public Typed
@@ -243,6 +241,21 @@ namespace DWARFToCPP
 		std::vector<std::weak_ptr<Enumerator>> m_enumerators;
 	};
 
+	class NamedType : public Typed
+	{
+	public:
+		NamedType() noexcept : Typed(TypeCode::NamedType) {}
+
+		/// @brief Parses a DIE to a named concept
+		/// @param parser The parser
+		/// @param die The DIE
+		/// @return The error, if applicable
+		virtual std::optional<std::string> ParseDIE(Parser& parser,
+			const dwarf::die& die) noexcept;
+	private:
+		std::optional<std::weak_ptr<Typed>> m_type;
+	};
+
 	class Pointer : public Typed
 	{
 	public:
@@ -255,7 +268,7 @@ namespace DWARFToCPP
 		virtual std::optional<std::string> ParseDIE(Parser& parser,
 			const dwarf::die& die) noexcept;
 	private:
-		std::weak_ptr<Typed> m_type;
+		std::weak_ptr<Named> m_type;
 	};
 
 	class PointerToMember : public Typed
@@ -286,7 +299,7 @@ namespace DWARFToCPP
 		virtual std::optional<std::string> ParseDIE(Parser& parser,
 			const dwarf::die& die) noexcept;
 	private:
-		std::weak_ptr<Typed> m_type;
+		std::weak_ptr<Named> m_type;
 	};
 
 	class TypeDef : public Typed
@@ -346,6 +359,7 @@ namespace DWARFToCPP
 		friend Class;
 		friend ConstType;
 		friend Enum;
+		friend NamedType;
 		friend Namespace;
 		friend Pointer;
 		friend PointerToMember;
