@@ -4,8 +4,6 @@
 #include <stack>
 #include <unordered_set>
 
-#include <iostream>
-
 using namespace DWARFToCPP;
 
 // types
@@ -195,15 +193,42 @@ std::optional<std::string> NamedType::ParseDIE(Parser& parser,
 	return std::nullopt;
 }
 
-void Namespace::AddNamed(const std::shared_ptr<Named>& named) noexcept
+std::optional<std::string> Namespace::AddNamed(std::shared_ptr<Named> named) noexcept
 {
 	if (named == nullptr)
-		return;
-	auto name = named->GetName();
+		return std::nullopt;
+	const auto& name = named->GetName();
 	// just ignore empty names
 	if (name.empty() == true)
-		return;
-	m_namedConcepts.emplace(std::move(name), named);
+		return std::nullopt;
+	// see if it already exists
+	const auto conceptIt = m_namedConcepts.find(name);
+	if (conceptIt == m_namedConcepts.end())
+	{
+		m_namedConcepts.emplace(name, std::move(named));
+		return std::nullopt;
+	}
+	// if it's not a namespace, it's likely just included by multiple files
+	if (named->GetType() != Type::Namespace)
+		return std::nullopt;
+	// lock the existing concept and append the new list
+	auto existingConcept = conceptIt->second.lock();
+	if (named->GetType() != existingConcept->GetType())
+		return "Symbol " + name + " in namespace " + GetName() + " type mismatch";
+	auto existingNamespace = std::static_pointer_cast<Namespace>(std::move(existingConcept));
+	auto newNamespace = std::static_pointer_cast<Namespace>(std::move(named));
+	existingNamespace->m_namedConcepts.insert(newNamespace->m_namedConcepts.begin(), 
+		newNamespace->m_namedConcepts.end());
+	return std::nullopt;
+}
+
+std::optional<std::shared_ptr<const Named>> Namespace::GetNamedConcept(
+	const std::string& name) const noexcept
+{
+	const auto conceptIt = m_namedConcepts.find(name);
+	if (conceptIt == m_namedConcepts.end())
+		return std::nullopt;
+	return conceptIt->second.lock();
 }
 
 std::optional<std::string> Namespace::ParseDIE(Parser& parser,
@@ -221,7 +246,9 @@ std::optional<std::string> Namespace::ParseDIE(Parser& parser,
 		auto parsedChild = parser.ParseDIE(child);
 		if (parsedChild.has_value() == false)
 			return std::move(parsedChild.error());
-		AddNamed(parsedChild.value());
+		auto error = AddNamed(parsedChild.value());
+		if (error.has_value() == true)
+			return std::move(error);
 	}
 	return std::nullopt;
 }
@@ -424,6 +451,7 @@ std::optional<std::string> VolatileType::ParseDIE(Parser& parser,
 	SetName(m_type.lock()->GetName() + '&');
 	return std::nullopt;
 }
+
 // parser
 
 std::optional<std::string> Parser::ParseDWARF(const dwarf::dwarf& data) noexcept
@@ -449,8 +477,9 @@ std::optional<std::string> Parser::ParseCompilationUnit(const dwarf::compilation
 	{
 		if (auto res = ParseDIE(die); res.has_value() == false)
 			return std::move(res.error());
-		else
-			m_globalNamespace.AddNamed(std::move(res.value()));
+		else if (auto error = m_globalNamespace.AddNamed(std::move(res.value()));
+			error.has_value() == true)
+			return std::move(error);
 	}
 	return std::nullopt;
 }
@@ -526,9 +555,6 @@ tl::expected<std::shared_ptr<Named>, std::string> Parser::ParseDIE(const dwarf::
 		result = std::make_shared<VolatileType>();
 		break;
 	default:
-		std::cout << "Type dump for " << to_string(die.tag) << ":\n";
-		for (const auto& attr : die.attributes())
-			std::cout << to_string(attr.first) << ": " << to_string(attr.second) << '\n';
 		return tl::make_unexpected("Unimplemented DIE type " + to_string(die.tag));
 	}
 	m_parsedEntries.emplace(reinterpret_cast<const char*>(

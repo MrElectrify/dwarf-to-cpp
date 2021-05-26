@@ -112,7 +112,8 @@ namespace DWARFToCPP
 
 		/// @brief Adds a named concept to the namespace
 		/// @param named The named concept
-		void AddNamed(const std::shared_ptr<Named>& named) noexcept;
+		/// @return The error, if applicable
+		std::optional<std::string> AddNamed(std::shared_ptr<Named> named) noexcept;
 
 		/// @brief Parses a DIE to a named concept
 		/// @param parser The parser
@@ -120,6 +121,12 @@ namespace DWARFToCPP
 		/// @return The error, if applicable
 		virtual std::optional<std::string> ParseDIE(Parser& parser,
 			const dwarf::die& die) noexcept;
+
+		/// @brief Finds a named concept in the namespace
+		/// @param name The name of the concept
+		/// @return The concept
+		std::optional<std::shared_ptr<const Named>> GetNamedConcept(
+			const std::string& name) const noexcept;
 	private:
 		std::unordered_map<std::string, std::weak_ptr<Named>> m_namedConcepts;
 	};
