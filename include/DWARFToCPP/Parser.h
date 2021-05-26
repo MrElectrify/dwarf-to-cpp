@@ -104,6 +104,9 @@ namespace DWARFToCPP
 		/// @param outFile The output file
 		/// @param indentLevel The indentation level
 		virtual void PrintToFile(std::ofstream& outFile, size_t indentLevel = 0) noexcept;
+
+		/// @return The value of the enum
+		const std::variant<uint64_t, int64_t>& GetValue() const noexcept { return m_value; }
 	private:
 		std::variant<uint64_t, int64_t> m_value;
 	};

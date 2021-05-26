@@ -226,7 +226,23 @@ std::optional<std::string> Enum::ParseDIE(Parser& parser,
 
 void Enum::PrintToFile(std::ofstream& outFile, size_t indentLevel) noexcept
 {
-
+	PrintIndents(outFile, indentLevel);
+	outFile << "enum " << GetName() << '\n';
+	PrintIndents(outFile, indentLevel);
+	outFile << "{\n";
+	for (const auto& enumeratorPtr : m_enumerators)
+	{
+		auto enumerator = enumeratorPtr.lock();
+		PrintIndents(outFile, indentLevel + 1);
+		outFile << enumerator->GetName() << " = ";
+		if (enumerator->GetValue().index() == 0)
+			outFile << std::get<0>(enumerator->GetValue());
+		else
+			outFile << std::get<1>(enumerator->GetValue());
+		outFile << ",\n";
+	}
+	PrintIndents(outFile, indentLevel);
+	outFile << "};\n";
 }
 
 std::optional<std::string> Enumerator::ParseDIE(Parser& parser,
