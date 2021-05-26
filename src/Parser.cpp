@@ -517,6 +517,8 @@ std::optional<std::string> SubProgram::ParseDIE(Parser& parser,
 		existingFn->m_parameters.clear();
 		for (const auto param : die)
 		{
+			if (param.tag != dwarf::DW_TAG::formal_parameter)
+				continue;
 			auto parsedParam = parser.ParseDIE(param);
 			if (parsedParam.has_value() == false)
 				return std::move(parsedParam.error());
@@ -656,7 +658,7 @@ std::optional<std::string> TypeDef::ParseDIE(Parser& parser,
 void TypeDef::PrintToFile(std::ofstream& outFile, size_t indentLevel) noexcept
 {
 	PrintIndents(outFile, indentLevel);
-	outFile << "typedef " << GetName() << ' ' << m_type.lock()->GetName() << ";\n";
+	outFile << "typedef " << m_type.lock()->GetName() << ' ' << GetName() << ";\n";
 }
 
 std::optional<std::string> Value::ParseDIE(Parser& parser,
