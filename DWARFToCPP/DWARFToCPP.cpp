@@ -17,13 +17,14 @@
 #pragma warning(disable : 4996)
 #endif
 
+#include <fstream>
 #include <iostream>
 
 int main(int argc, char* argv[])
 {
-	if (argc != 2)
+	if (argc != 3)
 	{
-		std::cout << "Usage: " << argv[0] << " <elf:path>\n";
+		std::cout << "Usage: " << argv[0] << " <elf:path> <outFile:path>\n";
 		return 1;
 	}
 	// open the file
@@ -45,6 +46,14 @@ int main(int argc, char* argv[])
 			std::cerr << "Failed to parse DWARF data: " << err.value() << '\n';
 			return 1;
 		}
+		// open the output file
+		std::ofstream outFile(argv[2]);
+		if (outFile.good() == false)
+		{
+			std::cerr << "Failed to open output file " << argv[2] << '\n';
+			return 1;
+		}
+		parser.PrintToFile(outFile);
 	}
 	catch (const std::exception& e)
 	{

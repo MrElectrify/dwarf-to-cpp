@@ -36,6 +36,11 @@ std::optional<std::string> Array::ParseDIE(Parser& parser,
 	return std::nullopt;
 }
 
+void Array::PrintToFile(std::ofstream& outFile, size_t indentLevel) noexcept
+{
+
+}
+
 std::optional<std::string> BasicType::ParseDIE(Parser& parser,
 	const dwarf::die& die) noexcept
 {
@@ -44,6 +49,11 @@ std::optional<std::string> BasicType::ParseDIE(Parser& parser,
 		return "A basic type was missing a name!";
 	SetName(name.as_string());
 	return std::nullopt;
+}
+
+void BasicType::PrintToFile(std::ofstream& outFile, size_t indentLevel) noexcept
+{
+
 }
 
 std::optional<std::string> Class::ParseDIE(Parser& parser,
@@ -98,10 +108,74 @@ std::optional<std::string> Class::ParseDIE(Parser& parser,
 				std::move(parsedChild.value())));
 			continue;
 		}
-		// it's a normal member
+		// it's a normal member. add the relationship and store the member
+		parser.AddParent(*parsedChild.value(), *this);
 		m_members.emplace_back(parsedChild.value(), accessibility);
 	}
 	return std::nullopt;
+}
+
+void Class::PrintToFile(std::ofstream& outFile, size_t indentLevel) noexcept
+{
+	PrintIndents(outFile, indentLevel);
+	outFile << ToString(m_classType) << ' ' << GetName() << ' ';
+	if (m_parentClasses.empty() == false)
+	{
+		outFile << ": ";
+		for (auto it = m_parentClasses.begin(); it != m_parentClasses.end(); ++it)
+		{
+			if (it != m_parentClasses.begin())
+				outFile << ", ";
+			outFile << ToString(it->second) << ' ';
+			outFile << it->first.lock()->GetName();
+		}
+	}
+	outFile << '\n';
+	PrintIndents(outFile, indentLevel);
+	outFile << "{\n";
+	// print each member
+	Accessibility lastAccessibility = (m_classType == dwarf::DW_TAG::class_type) ?
+		Accessibility::Private : Accessibility::Public;
+	for (const auto& memberPair : m_members)
+	{
+		if (memberPair.second != lastAccessibility)
+		{
+			PrintIndents(outFile, indentLevel);
+			outFile << ToString(memberPair.second) << ":\n";
+			lastAccessibility = memberPair.second;
+		}
+		memberPair.first.lock()->PrintToFile(outFile, indentLevel + 1);
+	}
+	PrintIndents(outFile, indentLevel);
+	outFile << "};\n";
+}
+
+std::string Class::ToString(Accessibility accessibility) noexcept
+{
+	switch (accessibility)
+	{
+	case Accessibility::Public:
+		return "public";
+	case Accessibility::Protected:
+		return "protected";
+	case Accessibility::Private:
+		return "private";
+	}
+	return "";
+}
+
+std::string Class::ToString(dwarf::DW_TAG classType) noexcept
+{
+	switch (classType)
+	{
+	case dwarf::DW_TAG::class_type:
+		return "class";
+	case dwarf::DW_TAG::structure_type:
+		return "struct";
+	case dwarf::DW_TAG::union_type:
+		return "union";
+	}
+	return "";
 }
 
 std::optional<std::string> ConstType::ParseDIE(Parser& parser,
@@ -120,6 +194,11 @@ std::optional<std::string> ConstType::ParseDIE(Parser& parser,
 	}
 	SetName("const " + (m_type.has_value() == true ? m_type->lock()->GetName() : "void"));
 	return std::nullopt;
+}
+
+void ConstType::PrintToFile(std::ofstream& outFile, size_t indentLevel) noexcept
+{
+
 }
 
 std::optional<std::string> Enum::ParseDIE(Parser& parser,
@@ -145,6 +224,11 @@ std::optional<std::string> Enum::ParseDIE(Parser& parser,
 	return std::nullopt;
 }
 
+void Enum::PrintToFile(std::ofstream& outFile, size_t indentLevel) noexcept
+{
+
+}
+
 std::optional<std::string> Enumerator::ParseDIE(Parser& parser,
 	const dwarf::die& die) noexcept
 {
@@ -165,11 +249,27 @@ std::optional<std::string> Enumerator::ParseDIE(Parser& parser,
 	return std::nullopt;
 }
 
+void Enumerator::PrintToFile(std::ofstream& outFile, size_t indentLevel) noexcept
+{
+
+}
+
 std::optional<std::string> Ignored::ParseDIE(Parser& parser,
 	const dwarf::die& die) noexcept
 {
 	// we don't care about anything here
 	return std::nullopt;
+}
+
+void Ignored::PrintToFile(std::ofstream& outFile, size_t indentLevel) noexcept
+{
+
+}
+
+void Named::PrintIndents(std::ofstream& outFile, size_t indentLevel) noexcept
+{
+	for (size_t i = 0; i < indentLevel; ++i)
+		outFile << '\t';
 }
 
 std::optional<std::string> NamedType::ParseDIE(Parser& parser,
@@ -193,7 +293,12 @@ std::optional<std::string> NamedType::ParseDIE(Parser& parser,
 	return std::nullopt;
 }
 
-std::optional<std::string> Namespace::AddNamed(std::shared_ptr<Named> named) noexcept
+void NamedType::PrintToFile(std::ofstream& outFile, size_t indentLevel) noexcept
+{
+
+}
+
+std::optional<std::string> Namespace::AddNamed(Parser& parser, std::shared_ptr<Named> named) noexcept
 {
 	if (named == nullptr)
 		return std::nullopt;
@@ -205,6 +310,9 @@ std::optional<std::string> Namespace::AddNamed(std::shared_ptr<Named> named) noe
 	const auto conceptIt = m_namedConcepts.find(name);
 	if (conceptIt == m_namedConcepts.end())
 	{
+		// add the relationship if this is not the global namespace
+		if (GetName().empty() == false)
+			parser.AddParent(*named, *this);
 		m_namedConcepts.emplace(name, std::move(named));
 		return std::nullopt;
 	}
@@ -246,11 +354,45 @@ std::optional<std::string> Namespace::ParseDIE(Parser& parser,
 		auto parsedChild = parser.ParseDIE(child);
 		if (parsedChild.has_value() == false)
 			return std::move(parsedChild.error());
-		auto error = AddNamed(parsedChild.value());
+		auto error = AddNamed(parser, parsedChild.value());
 		if (error.has_value() == true)
 			return std::move(error);
 	}
 	return std::nullopt;
+}
+
+void Namespace::PrintToFile(std::ofstream& outFile, size_t indentLevel) noexcept
+{
+	const bool global = (GetName().empty() == true);
+	if (global == false)
+	{
+		PrintIndents(outFile, indentLevel);
+		outFile << "namespace " << GetName() << "\n";
+		PrintIndents(outFile, indentLevel);
+		outFile << "{\n";
+	}
+	for (const auto& namedPair : m_namedConcepts)
+	{
+		const auto namedConcept = namedPair.second.lock();
+		if (namedConcept->GetType() != Type::Namespace)
+		{
+			if (namedConcept->GetType() == Type::Typed)
+			{
+				// make sure it is a class type
+				if (std::static_pointer_cast<Typed>(namedConcept)->GetTypeCode() !=
+					Typed::TypeCode::Class)
+					continue;
+			}
+			else
+				continue;
+		}
+		namedConcept->PrintToFile(outFile, indentLevel + 1 - global);
+	}
+	if (global == false)
+	{
+		PrintIndents(outFile, indentLevel);
+		outFile << "};\n";
+	}
 }
 
 std::optional<std::string> Pointer::ParseDIE(Parser& parser,
@@ -268,6 +410,11 @@ std::optional<std::string> Pointer::ParseDIE(Parser& parser,
 	}
 	SetName((m_type.has_value() == true ? m_type->lock()->GetName() : "void") + '*');
 	return std::nullopt;
+}
+
+void Pointer::PrintToFile(std::ofstream& outFile, size_t indentLevel) noexcept
+{
+
 }
 
 std::optional<std::string> PointerToMember::ParseDIE(Parser& parser,
@@ -303,26 +450,84 @@ std::optional<std::string> PointerToMember::ParseDIE(Parser& parser,
 	return std::nullopt;
 }
 
+void PointerToMember::PrintToFile(std::ofstream& outFile, size_t indentLevel) noexcept
+{
+
+}
+
 std::optional<std::string> RefType::ParseDIE(Parser& parser,
 	const dwarf::die& die) noexcept
 {
 	// parse the embedded type
 	auto type = die.resolve(dwarf::DW_AT::type);
 	if (type.valid() == false)
-		return "A const type did not have a type!";
+		return "A ref type did not have a type!";
 	auto parsedType = parser.ParseDIE(type.as_reference());
 	if (parsedType.has_value() == false)
 		return std::move(parsedType.error());
 	if (parsedType.value()->GetType() != Type::Typed)
-		return "A const type was not a type!";
+		return "A ref type was not a type!";
 	m_type = std::static_pointer_cast<Typed>(std::move(parsedType.value()));
 	SetName(m_type.lock()->GetName() + '&');
 	return std::nullopt;
 }
 
+void RefType::PrintToFile(std::ofstream& outFile, size_t indentLevel) noexcept
+{
+
+}
+
+std::optional<std::string> RRefType::ParseDIE(Parser& parser,
+	const dwarf::die& die) noexcept
+{
+	// parse the embedded type
+	auto type = die.resolve(dwarf::DW_AT::type);
+	if (type.valid() == false)
+		return "A rref type did not have a type!";
+	auto parsedType = parser.ParseDIE(type.as_reference());
+	if (parsedType.has_value() == false)
+		return std::move(parsedType.error());
+	if (parsedType.value()->GetType() != Type::Typed)
+		return "A rref type was not a type!";
+	m_type = std::static_pointer_cast<Typed>(std::move(parsedType.value()));
+	SetName(m_type.lock()->GetName() + "&&");
+	return std::nullopt;
+}
+
+void RRefType::PrintToFile(std::ofstream& outFile, size_t indentLevel) noexcept
+{
+
+}
+
 std::optional<std::string> SubProgram::ParseDIE(Parser& parser,
 	const dwarf::die& die) noexcept
 {
+	// see if this is a specification
+	auto spec = die.resolve(dwarf::DW_AT::specification);
+	if (spec.valid() == true)
+	{
+		// this is a specification. find the existing function and add params
+		auto existingNamed = parser.ParseDIE(spec.as_reference());
+		if (existingNamed.has_value() == false)
+			return std::move(existingNamed.error());
+		if (existingNamed.value()->GetType() != Type::SubProgram)
+			return "A subprogram specification was not a subprogram!";
+		auto existingFn = std::static_pointer_cast<SubProgram>(std::move(existingNamed.value()));
+		// erase existing parameters and rewrite them
+		existingFn->m_parameters.clear();
+		for (const auto param : die)
+		{
+			auto parsedParam = parser.ParseDIE(param);
+			if (parsedParam.has_value() == false)
+				return std::move(parsedParam.error());
+			if (parsedParam.value()->GetType() != Type::Value)
+				return "A subprogram's parameter was a non value-type";
+			existingFn->m_parameters.push_back(std::static_pointer_cast<Value>(
+				std::move(parsedParam.value())));
+		}
+		// leave ourselves empty
+		return std::nullopt;
+	}
 	auto name = die.resolve(dwarf::DW_AT::name);
 	if (name.valid() == false)
 		return "A subprogram was missing a name!";
@@ -341,11 +546,16 @@ std::optional<std::string> SubProgram::ParseDIE(Parser& parser,
 			return "A subprogram has a non-type return type!";
 		m_returnType = std::static_pointer_cast<Typed>(std::move(parsedType.value()));
 	}
+	// see if we are virtual
+	auto virtuality = die.resolve(dwarf::DW_AT::virtuality);
+	if (virtuality.valid() == true && virtuality.as_uconstant() == 1)
+		m_virtual = true;
 	// loop through the parameters, which are the sibling's children
 	for (const auto param : die)
 	{
 		if (param.tag != dwarf::DW_TAG::formal_parameter)
 			continue;
+		auto artificial = param.resolve(dwarf::DW_AT::artificial);
 		auto parsedParam = parser.ParseDIE(param);
 		if (parsedParam.has_value() == false)
 			return std::move(parsedParam.error());
@@ -355,6 +565,29 @@ std::optional<std::string> SubProgram::ParseDIE(Parser& parser,
 			std::move(parsedParam.value())));
 	}
 	return std::nullopt;
+}
+
+void SubProgram::PrintToFile(std::ofstream& outFile, size_t indentLevel) noexcept
+{
+	PrintIndents(outFile, indentLevel);
+	// if we are virtual, print that
+	if (m_virtual == true)
+		outFile << "virtual ";
+	if (m_returnType.has_value() == true)
+		outFile << m_returnType->lock()->GetName();
+	else
+		outFile << "void";
+	outFile << ' ' << GetName() << '(';
+	for (auto paramIt = m_parameters.begin(); paramIt != m_parameters.end(); ++paramIt)
+	{
+		if (paramIt != m_parameters.begin())
+			outFile << ", ";
+		auto param = paramIt->lock();
+		outFile << param->GetValueType().lock()->GetName();
+		if (param->GetName().empty() == false)
+			outFile << ' ' << param->GetName();
+	}
+	outFile << ");\n";
 }
 
 std::optional<std::string> Subroutine::ParseDIE(Parser& parser,
@@ -371,12 +604,17 @@ std::optional<std::string> Subroutine::ParseDIE(Parser& parser,
 			return "A subroutine's return type was not a type!";
 		m_returnType = std::static_pointer_cast<Typed>(std::move(parsedType.value()));
 	}
+	std::string name = "FunctionPtr<" + ((m_returnType.has_value() == true) ?
+		m_returnType->lock()->GetName() : "void");
+	name += '(';
 	// parse each parameter
-	for (auto param : die)
+	for (auto paramIt = die.begin(); paramIt != die.end(); ++paramIt)
 	{
-		if (param.tag != dwarf::DW_TAG::formal_parameter)
+		if (paramIt->tag != dwarf::DW_TAG::formal_parameter)
 			continue;
-		auto parsedParam = parser.ParseDIE(param);
+		if (paramIt != die.begin())
+			name += ", ";
+		auto parsedParam = parser.ParseDIE(*paramIt);
 		if (parsedParam.has_value() == false)
 			return std::move(parsedParam.error());
 		if (parsedParam.value()->GetType() != Type::Value)
@@ -384,7 +622,14 @@ std::optional<std::string> Subroutine::ParseDIE(Parser& parser,
 		m_parameters.emplace_back(std::static_pointer_cast<Value>(
 			std::move(parsedParam.value())));
 	}
+	name += ")>";
+	SetName(std::move(name));
 	return std::nullopt;
+}
+
+void Subroutine::PrintToFile(std::ofstream& outFile, size_t indentLevel) noexcept
+{
+
 }
 
 std::optional<std::string> TypeDef::ParseDIE(Parser& parser,
@@ -406,6 +651,12 @@ std::optional<std::string> TypeDef::ParseDIE(Parser& parser,
 		return "A typedef's type was not a type!";
 	m_type = std::static_pointer_cast<Typed>(std::move(parsedType.value()));
 	return std::nullopt;
+}
+
+void TypeDef::PrintToFile(std::ofstream& outFile, size_t indentLevel) noexcept
+{
+	PrintIndents(outFile, indentLevel);
+	outFile << "typedef " << GetName() << ' ' << m_type.lock()->GetName() << ";\n";
 }
 
 std::optional<std::string> Value::ParseDIE(Parser& parser,
@@ -435,6 +686,12 @@ std::optional<std::string> Value::ParseDIE(Parser& parser,
 	return std::nullopt;
 }
 
+void Value::PrintToFile(std::ofstream& outFile, size_t indentLevel) noexcept
+{
+	PrintIndents(outFile, indentLevel);
+	outFile << m_type.lock()->GetName() << ' ' << GetName() << ";\n";
+}
+
 std::optional<std::string> VolatileType::ParseDIE(Parser& parser,
 	const dwarf::die& die) noexcept
 {
@@ -452,7 +709,17 @@ std::optional<std::string> VolatileType::ParseDIE(Parser& parser,
 	return std::nullopt;
 }
 
+void VolatileType::PrintToFile(std::ofstream& outFile, size_t indentLevel) noexcept
+{
+
+}
+
 // parser
+
+void Parser::AddParent(const Named& child, const Named& parent) noexcept
+{
+	m_childToParentMap.emplace(&child, &parent);
+}
 
 std::optional<std::string> Parser::ParseDWARF(const dwarf::dwarf& data) noexcept
 {
@@ -477,7 +744,7 @@ std::optional<std::string> Parser::ParseCompilationUnit(const dwarf::compilation
 	{
 		if (auto res = ParseDIE(die); res.has_value() == false)
 			return std::move(res.error());
-		else if (auto error = m_globalNamespace.AddNamed(std::move(res.value()));
+		else if (auto error = m_globalNamespace.AddNamed(*this, std::move(res.value()));
 			error.has_value() == true)
 			return std::move(error);
 	}
@@ -538,6 +805,9 @@ tl::expected<std::shared_ptr<Named>, std::string> Parser::ParseDIE(const dwarf::
 	case dwarf::DW_TAG::reference_type:
 		result = std::make_shared<RefType>();
 		break;
+	case dwarf::DW_TAG::rvalue_reference_type:
+		result = std::make_shared<RRefType>();
+		break;
 	case dwarf::DW_TAG::subprogram:
 		result = std::make_shared<SubProgram>();
 		break;
@@ -563,4 +833,10 @@ tl::expected<std::shared_ptr<Named>, std::string> Parser::ParseDIE(const dwarf::
 		parseRes.has_value() == true)
 		return tl::make_unexpected(std::move(parseRes.value()));
 	return std::move(result);
+}
+
+void Parser::PrintToFile(std::ofstream& outFile) noexcept
+{
+	// print the global namespace
+	m_globalNamespace.PrintToFile(outFile);
 }

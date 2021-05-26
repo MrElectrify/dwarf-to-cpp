@@ -16,8 +16,10 @@
 #include <tl/expected.hpp>
 
 // STL includes
+#include <fstream>
 #include <memory>
 #include <optional>
+#include <stack>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -52,10 +54,20 @@ namespace DWARFToCPP
 		/// @return The error, if applicable
 		virtual std::optional<std::string> ParseDIE(Parser& parser,
 			const dwarf::die& die) noexcept = 0;
+
+		/// @brief Prints the named type to a file
+		/// @param outFile The output file
+		/// @param indentLevel The indentation level
+		virtual void PrintToFile(std::ofstream& outFile, size_t indentLevel = 0) noexcept = 0;
 	protected:
 		/// @param type The basic type of the named concept
 		Named(Type type) noexcept :
 			m_type(type) {}
+
+		/// @brief Prints indents to the output file
+		/// @param outFile The indents
+		/// @param indentLevel The number of indents to print
+		static void PrintIndents(std::ofstream& outFile, size_t indentLevel) noexcept;
 	public:
 		/// @return The basic type of the named concept
 		Type GetType() const noexcept { return m_type; }
@@ -87,6 +99,11 @@ namespace DWARFToCPP
 		/// @return The error, if applicable
 		virtual std::optional<std::string> ParseDIE(Parser& parser,
 			const dwarf::die& die) noexcept;
+
+		/// @brief Prints the named type to a file
+		/// @param outFile The output file
+		/// @param indentLevel The indentation level
+		virtual void PrintToFile(std::ofstream& outFile, size_t indentLevel = 0) noexcept;
 	private:
 		std::variant<uint64_t, int64_t> m_value;
 	};
@@ -102,6 +119,11 @@ namespace DWARFToCPP
 		/// @return The error, if applicable
 		virtual std::optional<std::string> ParseDIE(Parser& parser,
 			const dwarf::die& die) noexcept;
+
+		/// @brief Prints the named type to a file
+		/// @param outFile The output file
+		/// @param indentLevel The indentation level
+		virtual void PrintToFile(std::ofstream& outFile, size_t indentLevel = 0) noexcept;
 	};
 
 	class Namespace : public Named
@@ -111,9 +133,11 @@ namespace DWARFToCPP
 		Namespace() noexcept : Named(Named::Type::Namespace) {}
 
 		/// @brief Adds a named concept to the namespace
+		/// @param parser The parser
 		/// @param named The named concept
 		/// @return The error, if applicable
-		std::optional<std::string> AddNamed(std::shared_ptr<Named> named) noexcept;
+		std::optional<std::string> AddNamed(Parser& parser,
+			std::shared_ptr<Named> named) noexcept;
 
 		/// @brief Parses a DIE to a named concept
 		/// @param parser The parser
@@ -121,6 +145,11 @@ namespace DWARFToCPP
 		/// @return The error, if applicable
 		virtual std::optional<std::string> ParseDIE(Parser& parser,
 			const dwarf::die& die) noexcept;
+
+		/// @brief Prints the named type to a file
+		/// @param outFile The output file
+		/// @param indentLevel The indentation level
+		virtual void PrintToFile(std::ofstream& outFile, size_t indentLevel = 0) noexcept;
 
 		/// @brief Finds a named concept in the namespace
 		/// @param name The name of the concept
@@ -142,7 +171,13 @@ namespace DWARFToCPP
 		/// @return The error, if applicable
 		virtual std::optional<std::string> ParseDIE(Parser& parser,
 			const dwarf::die& die) noexcept;
+
+		/// @brief Prints the named type to a file
+		/// @param outFile The output file
+		/// @param indentLevel The indentation level
+		virtual void PrintToFile(std::ofstream& outFile, size_t indentLevel = 0) noexcept;
 	private:
+		bool m_virtual = false;
 		std::optional<std::weak_ptr<Typed>> m_returnType;
 		std::vector<std::weak_ptr<Value>> m_parameters;
 	};
@@ -161,6 +196,7 @@ namespace DWARFToCPP
 			Pointer,
 			PointerToMember,
 			RefType,
+			RRefType,
 			Subroutine,
 			TypeDef,
 			VolatileType
@@ -188,6 +224,11 @@ namespace DWARFToCPP
 		virtual std::optional<std::string> ParseDIE(Parser& parser,
 			const dwarf::die& die) noexcept;
 
+		/// @brief Prints the named type to a file
+		/// @param outFile The output file
+		/// @param indentLevel The indentation level
+		virtual void PrintToFile(std::ofstream& outFile, size_t indentLevel = 0) noexcept;
+
 		/// @return The size of the array, in elements
 		size_t Size() const noexcept { return m_size; }
 		/// @return The type of the array
@@ -208,6 +249,11 @@ namespace DWARFToCPP
 		/// @return The error, if applicable
 		virtual std::optional<std::string> ParseDIE(Parser& parser,
 			const dwarf::die& die) noexcept;
+
+		/// @brief Prints the named type to a file
+		/// @param outFile The output file
+		/// @param indentLevel The indentation level
+		virtual void PrintToFile(std::ofstream& outFile, size_t indentLevel = 0) noexcept;
 	};
 
 	class Class : public Typed
@@ -228,7 +274,15 @@ namespace DWARFToCPP
 		/// @return The error, if applicable
 		virtual std::optional<std::string> ParseDIE(Parser& parser,
 			const dwarf::die& die) noexcept;
+
+		/// @brief Prints the named type to a file
+		/// @param outFile The output file
+		/// @param indentLevel The indentation level
+		virtual void PrintToFile(std::ofstream& outFile, size_t indentLevel = 0) noexcept;
 	protected:
+		static std::string ToString(Accessibility accessibility) noexcept;
+		static std::string ToString(dwarf::DW_TAG classsType) noexcept;
+
 		dwarf::DW_TAG m_classType{};
 		std::vector<std::pair<std::weak_ptr<Named>, Accessibility>> m_members;
 		std::vector<std::pair<std::weak_ptr<Class>, Accessibility>> m_parentClasses;
@@ -246,6 +300,11 @@ namespace DWARFToCPP
 		/// @return The error, if applicable
 		virtual std::optional<std::string> ParseDIE(Parser& parser,
 			const dwarf::die& die) noexcept;
+
+		/// @brief Prints the named type to a file
+		/// @param outFile The output file
+		/// @param indentLevel The indentation level
+		virtual void PrintToFile(std::ofstream& outFile, size_t indentLevel = 0) noexcept;
 	private:
 		std::optional<std::weak_ptr<Named>> m_type;
 	};
@@ -261,6 +320,11 @@ namespace DWARFToCPP
 		/// @return The error, if applicable
 		virtual std::optional<std::string> ParseDIE(Parser& parser,
 			const dwarf::die& die) noexcept;
+
+		/// @brief Prints the named type to a file
+		/// @param outFile The output file
+		/// @param indentLevel The indentation level
+		virtual void PrintToFile(std::ofstream& outFile, size_t indentLevel = 0) noexcept;
 	private:
 		std::vector<std::weak_ptr<Enumerator>> m_enumerators;
 	};
@@ -276,6 +340,11 @@ namespace DWARFToCPP
 		/// @return The error, if applicable
 		virtual std::optional<std::string> ParseDIE(Parser& parser,
 			const dwarf::die& die) noexcept;
+
+		/// @brief Prints the named type to a file
+		/// @param outFile The output file
+		/// @param indentLevel The indentation level
+		virtual void PrintToFile(std::ofstream& outFile, size_t indentLevel = 0) noexcept;
 	private:
 		std::optional<std::weak_ptr<Typed>> m_type;
 	};
@@ -291,6 +360,11 @@ namespace DWARFToCPP
 		/// @return The error, if applicable
 		virtual std::optional<std::string> ParseDIE(Parser& parser,
 			const dwarf::die& die) noexcept;
+
+		/// @brief Prints the named type to a file
+		/// @param outFile The output file
+		/// @param indentLevel The indentation level
+		virtual void PrintToFile(std::ofstream& outFile, size_t indentLevel = 0) noexcept;
 	private:
 		std::optional<std::weak_ptr<Named>> m_type;
 	};
@@ -306,6 +380,11 @@ namespace DWARFToCPP
 		/// @return The error, if applicable
 		virtual std::optional<std::string> ParseDIE(Parser& parser,
 			const dwarf::die& die) noexcept;
+
+		/// @brief Prints the named type to a file
+		/// @param outFile The output file
+		/// @param indentLevel The indentation level
+		virtual void PrintToFile(std::ofstream& outFile, size_t indentLevel = 0) noexcept;
 	private:
 		std::weak_ptr<Class> m_containingType;
 		std::weak_ptr<Subroutine> m_functionType;
@@ -322,6 +401,31 @@ namespace DWARFToCPP
 		/// @return The error, if applicable
 		virtual std::optional<std::string> ParseDIE(Parser& parser,
 			const dwarf::die& die) noexcept;
+
+		/// @brief Prints the named type to a file
+		/// @param outFile The output file
+		/// @param indentLevel The indentation level
+		virtual void PrintToFile(std::ofstream& outFile, size_t indentLevel = 0) noexcept;
+	private:
+		std::weak_ptr<Named> m_type;
+	};
+
+	class RRefType : public Typed
+	{
+	public:
+		RRefType() noexcept : Typed(TypeCode::RefType) {}
+
+		/// @brief Parses a DIE to a named concept
+		/// @param parser The parser
+		/// @param die The DIE
+		/// @return The error, if applicable
+		virtual std::optional<std::string> ParseDIE(Parser& parser,
+			const dwarf::die& die) noexcept;
+
+		/// @brief Prints the named type to a file
+		/// @param outFile The output file
+		/// @param indentLevel The indentation level
+		virtual void PrintToFile(std::ofstream& outFile, size_t indentLevel = 0) noexcept;
 	private:
 		std::weak_ptr<Named> m_type;
 	};
@@ -339,6 +443,11 @@ namespace DWARFToCPP
 		/// @return The error, if applicable
 		virtual std::optional<std::string> ParseDIE(Parser& parser,
 			const dwarf::die& die) noexcept;
+
+		/// @brief Prints the named type to a file
+		/// @param outFile The output file
+		/// @param indentLevel The indentation level
+		virtual void PrintToFile(std::ofstream& outFile, size_t indentLevel = 0) noexcept;
 	private:
 		std::optional<std::weak_ptr<Typed>> m_returnType;
 		std::vector<std::weak_ptr<Value>> m_parameters;
@@ -355,6 +464,11 @@ namespace DWARFToCPP
 		/// @return The error, if applicable
 		virtual std::optional<std::string> ParseDIE(Parser& parser,
 			const dwarf::die& die) noexcept;
+
+		/// @brief Prints the named type to a file
+		/// @param outFile The output file
+		/// @param indentLevel The indentation level
+		virtual void PrintToFile(std::ofstream& outFile, size_t indentLevel = 0) noexcept;
 	private:
 		std::weak_ptr<Typed> m_type;
 	};
@@ -370,6 +484,11 @@ namespace DWARFToCPP
 		/// @return The error, if applicable
 		virtual std::optional<std::string> ParseDIE(Parser& parser,
 			const dwarf::die& die) noexcept;
+
+		/// @brief Prints the named type to a file
+		/// @param outFile The output file
+		/// @param indentLevel The indentation level
+		virtual void PrintToFile(std::ofstream& outFile, size_t indentLevel = 0) noexcept;
 	private:
 		std::weak_ptr<Named> m_type;
 	};
@@ -379,12 +498,19 @@ namespace DWARFToCPP
 	public:
 		Value() noexcept : Named(Type::Value) {}
 
+		const std::weak_ptr<Typed>& GetValueType() const noexcept { return m_type; }
+
 		/// @brief Parses a DIE to a named concept
 		/// @param parser The parser
 		/// @param die The DIE
 		/// @return The error, if applicable
 		virtual std::optional<std::string> ParseDIE(Parser& parser,
 			const dwarf::die& die) noexcept;
+
+		/// @brief Prints the named type to a file
+		/// @param outFile The output file
+		/// @param indentLevel The indentation level
+		virtual void PrintToFile(std::ofstream& outFile, size_t indentLevel = 0) noexcept;
 	private:
 		/// @tparam Str The string type
 		/// @param type The type of the value
@@ -406,6 +532,10 @@ namespace DWARFToCPP
 		/// @return The error, if one occurs
 		std::optional<std::string> ParseDWARF(const dwarf::dwarf& data) noexcept;
 
+		/// @brief Prints all classes and namespaces to a file
+		/// @param outFile The output file
+		void PrintToFile(std::ofstream& outFile) noexcept;
+
 		/// @return The global namespace
 		const Namespace& GlobalNamespace() const noexcept { return m_globalNamespace; }
 	private:
@@ -423,9 +553,15 @@ namespace DWARFToCPP
 		friend SubProgram;
 		friend Subroutine;
 		friend RefType;
+		friend RRefType;
 		friend TypeDef;
 		friend Value;
 		friend VolatileType;
+
+		/// @brief Adds a child-parent relationship
+		/// @param child The child node
+		/// @param parent The parent node
+		void AddParent(const Named& child, const Named& parent) noexcept;
 
 		/// @brief Parses a single compliation unit
 		/// @param unit The compilation unit to parse
@@ -436,8 +572,17 @@ namespace DWARFToCPP
 		/// @return The parsed named concept from the DIE
 		tl::expected<std::shared_ptr<Named>, std::string> ParseDIE(const dwarf::die& die) noexcept;
 
+		/// @param named The named object to trace to the global namespace
+		/// @return the path to the global namespace
+		std::stack<const Named*> PathToGlobal(const Named& named) noexcept;
+
 		// the global namespace will contain every type and function found
 		Namespace m_globalNamespace;
+		// we store a map of these because we won't necessarily know the
+		// hierarchy of relationships when seeing a certain class for the
+		// first time. store pointers to save space, same with parsed
+		// entries
+		std::unordered_map<const Named*, const Named*> m_childToParentMap;
 		// we also store parsed entries here
 		std::unordered_map<const void*, std::shared_ptr<Named>> m_parsedEntries;
 	};
