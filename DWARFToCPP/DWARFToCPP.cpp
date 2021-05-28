@@ -40,7 +40,7 @@ int main(int argc, char* argv[])
 		dwarf::dwarf d(dwarf::elf::create_loader(e));
 		// create a parser
 		DWARFToCPP::Parser parser;
-		if (const auto err = parser.ParseDWARF(d);
+		if (const auto err = parser.Parse(d);
 			err.has_value() == true)
 		{
 			std::cerr << "Failed to parse DWARF data: " << err.value() << '\n';
@@ -53,7 +53,7 @@ int main(int argc, char* argv[])
 			std::cerr << "Failed to open output file " << argv[2] << '\n';
 			return 1;
 		}
-		parser.PrintToFile(outFile);
+		parser.Print(outFile);
 	}
 	catch (const std::exception& e)
 	{

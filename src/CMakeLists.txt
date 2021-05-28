@@ -2,6 +2,7 @@ add_library(Parser "Parser.cpp")
 
 target_link_libraries(Parser
 	PUBLIC tl::expected
+	PUBLIC fmt::fmt
 	PUBLIC libelfin::libdwarf)
 
 SET_PROJECT_WARNINGS(Parser)
