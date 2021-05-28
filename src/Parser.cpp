@@ -10,6 +10,32 @@ using namespace DWARFToCPP;
 
 // types
 
+std::optional<std::string> Class::Parse(Parser& parser, const dwarf::die& entry) noexcept
+{
+	if (const auto nameRes = NamedConcept::Parse(parser, entry);
+		nameRes.has_value() == true)
+		return nameRes;
+	// parse each child in the class
+	for (const auto child : entry)
+	{
+		auto parsedChild = parser.Parse(child);
+		if (parsedChild.has_value() == false)
+			return std::move(parsedChild.error());
+		AddConcept(parsedChild.value());
+	}
+	return std::nullopt;
+}
+
+void Class::Print(std::ostream& out, size_t indentLevel) const noexcept
+{
+
+}
+
+void Const::Print(std::ostream& out, size_t indentLevel) const noexcept
+{
+
+}
+
 std::optional<std::string> Modifier::Parse(Parser& parser, const dwarf::die& entry) noexcept
 {
 	auto referencedType = entry.resolve(dwarf::DW_AT::type);
@@ -21,7 +47,7 @@ std::optional<std::string> Modifier::Parse(Parser& parser, const dwarf::die& ent
 		return std::move(parsedReferencedType.error());
 	if (parsedReferencedType.value()->GetConceptType() != ConceptType::Type)
 		return "A modifier's type was not a type";
-	m_referencedType = std::static_pointer_cast<Type>(parsedReferencedType.value());
+	m_referencedType = std::dynamic_pointer_cast<Type>(parsedReferencedType.value());
 	return std::nullopt;
 }
 
@@ -38,7 +64,7 @@ bool NamedConceptMap::AddConcept(std::shared_ptr<LanguageConcept> languageConcep
 {
 	if (languageConcept->IsNamed() == false)
 		return false;
-	AddConcept(std::static_pointer_cast<NamedConcept>(std::move(languageConcept)));
+	AddConcept(std::dynamic_pointer_cast<NamedConcept>(std::move(languageConcept)));
 	return true;
 }
 
@@ -116,6 +142,14 @@ tl::expected<std::shared_ptr<LanguageConcept>, std::string> Parser::Parse(const 
 	// todo: make a self-registering factory for this
 	switch (die.tag)
 	{
+	case dwarf::DW_TAG::class_type:
+	case dwarf::DW_TAG::structure_type:
+	case dwarf::DW_TAG::union_type:
+		result = std::make_shared<Class>();
+		break;
+	case dwarf::DW_TAG::const_type:
+		result = std::make_shared<Const>();
+		break;
 	case dwarf::DW_TAG::namespace_:
 		result = std::make_shared<Namespace>();
 		break;

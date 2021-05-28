@@ -1,5 +1,7 @@
 #include <DWARFToCPP/Parser.h>
 
+#include <fmt/format.h>
+
 #include <elf++.hh>
 #include <dwarf++.hh>
 
@@ -24,14 +26,15 @@ int main(int argc, char* argv[])
 {
 	if (argc != 3)
 	{
-		std::cout << "Usage: " << argv[0] << " <elf:path> <outFile:path>\n";
+		fmt::print(stderr, "Usage: {} <elf:path> <outFile:path>\n", argv[0]);
 		return 1;
 	}
 	// open the file
 	int fd = open(argv[1], O_RDONLY);
 	if (fd < 0)
 	{
-		std::cerr << "Failed to open file " << argv[1] << ": " << errno << '\n';
+		fmt::print(stderr, "Failed to open input ELF file {}: {} ({})", argv[1], 
+			std::strerror(errno), errno);
 		return 1;
 	}
 	try
@@ -43,21 +46,21 @@ int main(int argc, char* argv[])
 		if (const auto err = parser.Parse(d);
 			err.has_value() == true)
 		{
-			std::cerr << "Failed to parse DWARF data: " << err.value() << '\n';
+			fmt::print(stderr, "Failed to parse DWARF structures: {}", err.value());
 			return 1;
 		}
 		// open the output file
-		std::ofstream outFile(argv[2]);
+		/*std::ofstream outFile(argv[2]);
 		if (outFile.good() == false)
 		{
-			std::cerr << "Failed to open output file " << argv[2] << '\n';
+			fmt::print(stderr, "Failed to open output file {}", argv[2]);
 			return 1;
-		}
-		parser.Print(outFile);
+		}*/
+		parser.Print(std::cout);
 	}
 	catch (const std::exception& e)
 	{
-		std::cerr << "Failed to dump types: " << e.what() << '\n';
+		fmt::print(stderr, "Failed to parse ELF/DWARF: {}", e.what());
 		return 1;
 	}
 	return 0;

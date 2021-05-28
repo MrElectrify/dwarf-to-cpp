@@ -7,6 +7,7 @@
 
 // libelfin includes
 #if _WIN32
+#pragma warning(disable : 4250) // dominance inheritance
 #pragma warning(push, 0)
 #endif
 #include <elf++.hh>
@@ -19,6 +20,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 
 #if _WIN32
 #pragma warning(pop)
@@ -60,12 +62,10 @@ namespace DWARFToCPP
 	};
 	
 	/// @brief A concept that has a unique name
-	class NamedConcept : public LanguageConcept
+	class NamedConcept : public virtual LanguageConcept
 	{
 	public:
-		/// @param conceptType The type of the language concept
-		NamedConcept(LanguageConcept::ConceptType conceptType) noexcept :
-			LanguageConcept(conceptType) {}
+		NamedConcept(ConceptType) noexcept {}
 
 		/// @return The name of the concept
 		const std::string& GetName() const noexcept { return m_name; }
@@ -92,22 +92,29 @@ namespace DWARFToCPP
 		/// @brief Adds a named concept to the map
 		/// @param namedConcept The named concept
 		void AddConcept(const std::shared_ptr<NamedConcept>& namedConcept) noexcept;
+
+		/// @brief Finds a named concept in the map
+		/// @param name The name of the named concept
+		/// @return The named concept, or the error
+		tl::expected<std::shared_ptr<NamedConcept>, std::string> 
+			FindConcept(const std::string& name) const noexcept;
 	private:
 		std::unordered_map<std::string, std::weak_ptr<NamedConcept>> m_namedConcepts;
 	};
 
 	/// @brief A data type
-	class Type : public LanguageConcept
+	class Type : public virtual LanguageConcept
 	{
 	public:
 		enum class TypeCode
 		{
+			Class,
+			Const,
 			Pointer
 		};
 
 		/// @param typeCode The typed concept's type code
-		Type(TypeCode typeCode) noexcept :
-			LanguageConcept(ConceptType::Type), m_typeCode(typeCode) {}
+		Type(TypeCode typeCode) noexcept : m_typeCode(typeCode) {}
 
 		/// @return The type code of the typed concept
 		TypeCode GetTypeCode() const noexcept { return m_typeCode; }
@@ -116,12 +123,30 @@ namespace DWARFToCPP
 	};
 
 	/// @brief A data type which has a unique name
-	class NamedType : public Type, public NamedConcept
+	class NamedType : public NamedConcept, public Type
 	{
 	public:
 		/// @param typeCode The typed concept's type code
 		NamedType(Type::TypeCode typeCode) noexcept :
-			Type(typeCode), NamedConcept(ConceptType::Type) {}
+			NamedConcept(ConceptType::Type), Type(typeCode) {}
+	};
+
+	/// @brief A class is an instantiable holder of named concepts
+	class Class : public NamedType, public NamedConceptMap
+	{
+	public:
+		Class() noexcept :
+			LanguageConcept(ConceptType::Type),
+			NamedType(TypeCode::Class) {}
+
+		/// @brief Parses the concept from a debug info entry
+		/// @param entry The debug info entry
+		/// @return The error, if one occurs
+		virtual std::optional<std::string> Parse(Parser& parser, const dwarf::die& entry) noexcept;
+		/// @brief Prints the full concept's C equivalent out to a stream
+		/// @param out The output stream
+		/// @param indentLevel The indention level
+		virtual void Print(std::ostream& out, size_t indentLevel) const noexcept;
 	};
 
 	/// @brief A modifier modifies an underlying type,
@@ -137,7 +162,7 @@ namespace DWARFToCPP
 		/// @return The referenced type that is modified
 		const std::weak_ptr<Type> GetReferencedType() const noexcept { return m_referencedType; }
 
-		/// @brief Parses the name from a debug info entry
+		/// @brief Parses the concept from a debug info entry
 		/// @param entry The debug info entry
 		/// @return The error, if one occurs
 		virtual std::optional<std::string> Parse(Parser& parser, const dwarf::die& entry) noexcept;
@@ -145,11 +170,25 @@ namespace DWARFToCPP
 		std::weak_ptr<Type> m_referencedType;
 	};
 
+	/// @brief A constant use of a specific type
+	class Const : public Modifier
+	{
+	public:
+		Const() noexcept : LanguageConcept(ConceptType::Type),
+			Modifier(Type::TypeCode::Const) {}
+
+		/// @brief Prints the full concept's C equivalent out to a stream
+		/// @param out The output stream
+		/// @param indentLevel The indention level
+		virtual void Print(std::ostream& out, size_t indentLevel) const noexcept;
+	};
+
 	/// @brief A memory pointer to a specific type
 	class Pointer : public Modifier
 	{
 	public:
-		Pointer() noexcept : Modifier(Type::TypeCode::Pointer) {}
+		Pointer() noexcept : LanguageConcept(ConceptType::Type),
+			Modifier(Type::TypeCode::Pointer) {}
 
 		/// @brief Prints the full concept's C equivalent out to a stream
 		/// @param out The output stream
@@ -174,7 +213,8 @@ namespace DWARFToCPP
 	class Namespace : public NamedConcept, public NamedConceptMap
 	{
 	public:
-		Namespace() noexcept : NamedConcept(ConceptType::Namespace) {}
+		Namespace() noexcept : LanguageConcept(ConceptType::Namespace),
+			NamedConcept(ConceptType::Namespace) {}
 
 		/// @brief Parses a concept from a debug information entry
 		virtual std::optional<std::string> Parse(Parser& parser, const dwarf::die& entry) noexcept;
