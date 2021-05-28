@@ -34,6 +34,8 @@ namespace DWARFToCPP
 	public:
 		enum class ConceptType
 		{
+			Instance,
+			Namespace,
 			Type,
 		};
 
@@ -61,18 +63,7 @@ namespace DWARFToCPP
 	public:
 		enum class TypeCode
 		{
-			Array,
-			BasicType,
-			Class,
-			ConstType,
-			Enum,
-			Pointer,
-			PointerToMember,
-			RefType,
-			RRefType,
-			SubRoutine,
-			TypeDef,
-			VolatileType
+			
 		};
 
 		/// @param typeCode The typed concept's type code
@@ -123,10 +114,24 @@ namespace DWARFToCPP
 	class Instance : public LanguageConcept
 	{
 	public:
+		Instance() noexcept : LanguageConcept(ConceptType::Instance) {}
+
+		/// @return The name of the instance
+		const std::string& GetInstanceName() const noexcept { return m_instanceName; }
 		/// @return The type of the instance
 		const std::weak_ptr<Type>& GetInstanceType() const noexcept { return m_instanceType; }
 	private:
+		std::string m_instanceName;
 		std::weak_ptr<Type> m_instanceType;
+	};
+
+	/// @brief A namespace contains all types and instances
+	/// in the global scope
+	class Namespace : public LanguageConcept
+	{
+	public:
+		Namespace() noexcept : LanguageConcept(ConceptType::Namespace) {}
+	private:
 	};
 
 	class Parser
