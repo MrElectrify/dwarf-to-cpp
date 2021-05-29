@@ -21,6 +21,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <variant>
 
 #if _WIN32
 #pragma warning(pop)
@@ -212,6 +213,8 @@ namespace DWARFToCPP
 		std::weak_ptr<Type> m_aliasType;
 	};
 
+	using TemplateType = TypeDef;
+
 	/// @brief A modifier modifies an underlying type,
 	/// and is usually represented by an associated keyword
 	/// or symbol
@@ -298,6 +301,7 @@ namespace DWARFToCPP
 		/// @param indentLevel The indention level
 		virtual void Print(std::ostream& out, size_t indentLevel) const noexcept;
 	private:
+		std::vector<std::variant<std::weak_ptr<TemplateType>>> m_templateParameters;
 	};
 
 	/// @brief A namespace contains all types and instances

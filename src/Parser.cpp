@@ -133,6 +133,19 @@ std::optional<std::string> SubProgram::Parse(Parser& parser, const dwarf::die& e
 	if (const auto error = SubRoutine::Parse(parser, entry);
 		error.has_value() == true)
 		return error;
+	// look for template types
+	for (const auto child : entry)
+	{
+		if (child.tag != dwarf::DW_TAG::template_type_parameter &&
+			child.tag != dwarf::DW_TAG::template_value_parameter)
+			continue;
+		auto parsedTemplateParam = parser.Parse(child);
+		if (parsedTemplateParam.has_value() == false)
+			return std::move(parsedTemplateParam.error());
+		if (child.tag == dwarf::DW_TAG::template_type_parameter)
+			m_templateParameters.emplace_back(std::dynamic_pointer_cast<
+				TemplateType>(std::move(parsedTemplateParam.value())));
+	}
 	return std::nullopt;
 }
 
@@ -264,6 +277,9 @@ tl::expected<std::shared_ptr<LanguageConcept>, std::string> Parser::Parse(const 
 		break;
 	case dwarf::DW_TAG::subroutine_type:
 		result = std::make_shared<SubRoutine>();
+		break;
+	case dwarf::DW_TAG::template_type_parameter:
+		result = std::make_shared<TemplateType>();
 		break;
 	case dwarf::DW_TAG::typedef_:
 		result = std::make_shared<TypeDef>();
