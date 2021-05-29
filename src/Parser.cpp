@@ -76,10 +76,13 @@ void Instance::Print(std::ostream& out, size_t indentLevel) const noexcept
 
 std::optional<std::string> Modifier::Parse(Parser& parser, const dwarf::die& entry) noexcept
 {
-	// a modifier may be void if it is a pointer
 	auto referencedType = entry.resolve(dwarf::DW_AT::type);
 	if (referencedType.valid() == false)
-		return std::nullopt;
+	{
+		if (m_allowVoid == true)
+			return std::nullopt;
+		return "A modifier had a void type, and was not allowed";
+	}
 	// parse the type
 	auto parsedReferencedType = parser.Parse(referencedType.as_reference());
 	if (parsedReferencedType.has_value() == false)

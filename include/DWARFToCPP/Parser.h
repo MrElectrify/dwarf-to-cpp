@@ -237,8 +237,9 @@ namespace DWARFToCPP
 	{
 	public:
 		/// @param underlyingType The underlying type being modified
-		Modifier(Type::TypeCode underlyingType) noexcept :
-			Type(underlyingType) {}
+		/// @param allowVoid Allow void underlying types
+		Modifier(Type::TypeCode underlyingType, bool allowVoid) noexcept :
+			Type(underlyingType), m_allowVoid(allowVoid) {}
 
 		/// @return The referenced type that is modified
 		const std::optional<std::weak_ptr<Type>> GetReferencedType() const noexcept { return m_referencedType; }
@@ -248,6 +249,7 @@ namespace DWARFToCPP
 		/// @return The error, if one occurs
 		virtual std::optional<std::string> Parse(Parser& parser, const dwarf::die& entry) noexcept;
 	private:
+		bool m_allowVoid;
 		std::optional<std::weak_ptr<Type>> m_referencedType;
 	};
 
@@ -256,7 +258,7 @@ namespace DWARFToCPP
 	{
 	public:
 		Const() noexcept : LanguageConcept(ConceptType::Type),
-			Modifier(Type::TypeCode::Const) {}
+			Modifier(Type::TypeCode::Const, false) {}
 
 		/// @brief Prints the full concept's C equivalent out to a stream
 		/// @param out The output stream
@@ -269,7 +271,7 @@ namespace DWARFToCPP
 	{
 	public:
 		Pointer() noexcept : LanguageConcept(ConceptType::Type),
-			Modifier(Type::TypeCode::Pointer) {}
+			Modifier(Type::TypeCode::Pointer, true) {}
 
 		/// @brief Prints the full concept's C equivalent out to a stream
 		/// @param out The output stream
