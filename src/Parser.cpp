@@ -144,6 +144,9 @@ void Pointer::Print(std::ostream& out, size_t indentLevel) const noexcept
 
 std::optional<std::string> SubProgram::Parse(Parser& parser, const dwarf::die& entry) noexcept
 {
+	if (const auto error = NamedConcept::Parse(parser, entry);
+		error.has_value() == true)
+		return error;
 	if (const auto error = SubRoutine::Parse(parser, entry);
 		error.has_value() == true)
 		return error;
