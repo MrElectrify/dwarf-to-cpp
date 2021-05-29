@@ -10,6 +10,11 @@ using namespace DWARFToCPP;
 
 // types
 
+void BaseType::Print(std::ostream& out, size_t indentLevel) const noexcept
+{
+
+}
+
 std::optional<std::string> Class::Parse(Parser& parser, const dwarf::die& entry) noexcept
 {
 	if (const auto nameRes = NamedConcept::Parse(parser, entry);
@@ -36,6 +41,28 @@ void Const::Print(std::ostream& out, size_t indentLevel) const noexcept
 
 }
 
+std::optional<std::string> Instance::Parse(Parser& parser, const dwarf::die& entry) noexcept
+{
+	if (const auto nameRes = NamedConcept::Parse(parser, entry);
+		nameRes.has_value() == true)
+		return nameRes;
+	auto type = entry.resolve(dwarf::DW_AT::type);
+	if (type.valid() == false)
+		return "An instance did not have a type";
+	auto parsedType = parser.Parse(type.as_reference());
+	if (parsedType.has_value() == false)
+		return std::move(parsedType.error());
+	if (parsedType.value()->GetConceptType() != ConceptType::Type)
+		return "An instance's type was not a type";
+	m_instanceType = std::dynamic_pointer_cast<Type>(parsedType.value());
+	return std::nullopt;
+}
+
+void Instance::Print(std::ostream& out, size_t indentLevel) const noexcept
+{
+
+}
+
 std::optional<std::string> Modifier::Parse(Parser& parser, const dwarf::die& entry) noexcept
 {
 	auto referencedType = entry.resolve(dwarf::DW_AT::type);
@@ -55,8 +82,9 @@ std::optional<std::string> NamedConcept::Parse(Parser& parser, const dwarf::die&
 {
 	const auto name = entry.resolve(dwarf::DW_AT::name);
 	if (name.valid() == false)
-		return "The named concept did not have a name";
-	m_name = name.as_string();
+		m_name = fmt::format_int(std::hash<void*>()(this)).c_str();
+	else
+		m_name = name.as_string();
 	return std::nullopt;
 }
 
@@ -95,6 +123,51 @@ void Namespace::Print(std::ostream& out, size_t indentLevel) const noexcept
 }
 
 void Pointer::Print(std::ostream& out, size_t indentLevel) const noexcept
+{
+
+}
+
+std::optional<std::string> SubProgram::Parse(Parser& parser, const dwarf::die& entry) noexcept
+{
+	if (const auto error = SubRoutine::Parse(parser, entry);
+		error.has_value() == true)
+		return error;
+	return std::nullopt;
+}
+
+void SubProgram::Print(std::ostream& out, size_t indentLevel) const noexcept
+{
+
+}
+
+std::optional<std::string> SubRoutine::Parse(Parser& parser, const dwarf::die& entry) noexcept
+{
+	auto returnType = entry.resolve(dwarf::DW_AT::type);
+	if (returnType.valid() == true)
+	{
+		auto parsedReturnType = parser.Parse(returnType.as_reference());
+		if (parsedReturnType.has_value() == false)
+			return std::move(parsedReturnType.error());
+		if (parsedReturnType.value()->GetConceptType() != ConceptType::Type)
+			return "A subroutine return type was not a type";
+		m_returnType = std::dynamic_pointer_cast<Type>(parsedReturnType.value());
+	}
+	for (const auto child : entry)
+	{
+		if (child.tag != dwarf::DW_TAG::formal_parameter)
+			continue;
+		auto parsedChild = parser.Parse(child);
+		if (parsedChild.has_value() == false)
+			return std::move(parsedChild.error());
+		if (parsedChild.value()->GetConceptType() != ConceptType::Instance)
+			return "A subroutine parameter was not an instance";
+		m_parameterTypes.emplace_back(std::dynamic_pointer_cast<Instance>(
+			std::move(parsedChild.value())));
+	}
+	return std::nullopt;
+}
+
+void SubRoutine::Print(std::ostream& out, size_t indentLevel) const noexcept
 {
 
 }
@@ -142,6 +215,9 @@ tl::expected<std::shared_ptr<LanguageConcept>, std::string> Parser::Parse(const 
 	// todo: make a self-registering factory for this
 	switch (die.tag)
 	{
+	case dwarf::DW_TAG::base_type:
+		result = std::make_shared<BaseType>();
+		break;
 	case dwarf::DW_TAG::class_type:
 	case dwarf::DW_TAG::structure_type:
 	case dwarf::DW_TAG::union_type:
@@ -150,11 +226,21 @@ tl::expected<std::shared_ptr<LanguageConcept>, std::string> Parser::Parse(const 
 	case dwarf::DW_TAG::const_type:
 		result = std::make_shared<Const>();
 		break;
+	case dwarf::DW_TAG::formal_parameter:
+	case dwarf::DW_TAG::member:
+		result = std::make_shared<Instance>();
+		break;
 	case dwarf::DW_TAG::namespace_:
 		result = std::make_shared<Namespace>();
 		break;
 	case dwarf::DW_TAG::pointer_type:
 		result = std::make_shared<Pointer>();
+		break;
+	case dwarf::DW_TAG::subprogram:
+		result = std::make_shared<SubProgram>();
+		break;
+	case dwarf::DW_TAG::subroutine_type:
+		result = std::make_shared<SubRoutine>();
 		break;
 	default:
 		return tl::make_unexpected("Unimplemented DIE type " + to_string(die.tag));

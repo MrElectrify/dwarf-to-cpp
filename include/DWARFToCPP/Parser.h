@@ -30,6 +30,8 @@ namespace DWARFToCPP
 {
 	class Parser;
 
+	class Instance;
+
 	/// @brief An abstract concept that exists in a language
 	class LanguageConcept
 	{
@@ -38,6 +40,7 @@ namespace DWARFToCPP
 		{
 			Instance,
 			Namespace,
+			SubProgram,
 			Type,
 		};
 
@@ -52,6 +55,8 @@ namespace DWARFToCPP
 		/// @return Whether or not the concept has an explicit name
 		virtual bool IsNamed() const noexcept { return false; }
 		/// @brief Parses a concept from a debug information entry
+		/// @param parser The parser
+		/// @param entry The debug information entry
 		virtual std::optional<std::string> Parse(Parser& parser, const dwarf::die& entry) noexcept = 0;
 		/// @brief Prints the full concept's C equivalent out to a stream
 		/// @param out The output stream
@@ -108,9 +113,11 @@ namespace DWARFToCPP
 	public:
 		enum class TypeCode
 		{
+			BaseType,
 			Class,
 			Const,
-			Pointer
+			Pointer,
+			SubRoutine,
 		};
 
 		/// @param typeCode The typed concept's type code
@@ -131,6 +138,20 @@ namespace DWARFToCPP
 			NamedConcept(ConceptType::Type), Type(typeCode) {}
 	};
 
+	/// @brief A basic built-in type to the language
+	class BaseType : public NamedType
+	{
+	public:
+		BaseType() noexcept :
+			LanguageConcept(ConceptType::Type),
+			NamedType(TypeCode::BaseType) {}
+
+		/// @brief Prints the full concept's C equivalent out to a stream
+		/// @param out The output stream
+		/// @param indentLevel The indention level
+		virtual void Print(std::ostream& out, size_t indentLevel) const noexcept;
+	};
+
 	/// @brief A class is an instantiable holder of named concepts
 	class Class : public NamedType, public NamedConceptMap
 	{
@@ -147,6 +168,25 @@ namespace DWARFToCPP
 		/// @param out The output stream
 		/// @param indentLevel The indention level
 		virtual void Print(std::ostream& out, size_t indentLevel) const noexcept;
+	};
+
+	/// @brief A function type that accepts arguments and returns one argument
+	class SubRoutine : public Type
+	{
+	public:
+		SubRoutine() noexcept :
+			LanguageConcept(ConceptType::Type),
+			Type(TypeCode::SubRoutine) {}
+
+		/// @brief Parses a concept from a debug information entry
+		virtual std::optional<std::string> Parse(Parser& parser, const dwarf::die& entry) noexcept;
+		/// @brief Prints the full concept's C equivalent out to a stream
+		/// @param out The output stream
+		/// @param indentLevel The indention level
+		virtual void Print(std::ostream& out, size_t indentLevel) const noexcept;
+	private:
+		std::weak_ptr<Type> m_returnType;
+		std::vector<std::weak_ptr<Instance>> m_parameterTypes;
 	};
 
 	/// @brief A modifier modifies an underlying type,
@@ -200,12 +240,41 @@ namespace DWARFToCPP
 	class Instance : public NamedConcept
 	{
 	public:
-		Instance() noexcept : NamedConcept(ConceptType::Instance) {}
+		/// @param instanceCode The code of the instance
+		Instance() noexcept :
+			LanguageConcept(ConceptType::Instance), 
+			NamedConcept(ConceptType::Instance) {}
 
 		/// @return The type of the instance
 		const std::weak_ptr<Type>& GetInstanceType() const noexcept { return m_instanceType; }
+
+		/// @brief Parses a concept from a debug information entry
+		virtual std::optional<std::string> Parse(Parser& parser, const dwarf::die& entry) noexcept;
+		/// @brief Prints the full concept's C equivalent out to a stream
+		/// @param out The output stream
+		/// @param indentLevel The indention level
+		virtual void Print(std::ostream& out, size_t indentLevel) const noexcept;
 	private:
 		std::weak_ptr<Type> m_instanceType;
+	};
+
+	/// @brief A subprogram is an instance of a subroutine
+	class SubProgram : public NamedConcept, public SubRoutine
+	{
+	public:
+		SubProgram() noexcept :
+			LanguageConcept(ConceptType::SubProgram),
+			NamedConcept(ConceptType::SubProgram) {}
+
+		/// @brief Parses a concept from a debug information entry
+		/// @param parser The parser
+		/// @param entry The debug information entry
+		virtual std::optional<std::string> Parse(Parser& parser, const dwarf::die& entry) noexcept;
+		/// @brief Prints the full concept's C equivalent out to a stream
+		/// @param out The output stream
+		/// @param indentLevel The indention level
+		virtual void Print(std::ostream& out, size_t indentLevel) const noexcept;
+	private:
 	};
 
 	/// @brief A namespace contains all types and instances
