@@ -65,9 +65,10 @@ void Instance::Print(std::ostream& out, size_t indentLevel) const noexcept
 
 std::optional<std::string> Modifier::Parse(Parser& parser, const dwarf::die& entry) noexcept
 {
+	// a modifier may be void if it is a pointer
 	auto referencedType = entry.resolve(dwarf::DW_AT::type);
 	if (referencedType.valid() == false)
-		return "A modifier was missing a type";
+		return std::nullopt;
 	// parse the type
 	auto parsedReferencedType = parser.Parse(referencedType.as_reference());
 	if (parsedReferencedType.has_value() == false)
@@ -172,6 +173,28 @@ void SubRoutine::Print(std::ostream& out, size_t indentLevel) const noexcept
 
 }
 
+std::optional<std::string> TypeDef::Parse(Parser& parser, const dwarf::die& entry) noexcept
+{
+	if (const auto error = NamedConcept::Parse(parser, entry);
+		error.has_value() == true)
+		return error;
+	const auto aliasType = entry.resolve(dwarf::DW_AT::type);
+	if (aliasType.valid() == false)
+		return "A typedef did not have an associated type";
+	auto parsedAliasType = parser.Parse(aliasType.as_reference());
+	if (parsedAliasType.has_value() == false)
+		return std::move(parsedAliasType.error());
+	if (parsedAliasType.value()->GetConceptType() != ConceptType::Type)
+		return "A typedef's type was not a type";
+	m_aliasType = std::dynamic_pointer_cast<Type>(std::move(parsedAliasType.value()));
+	return std::nullopt;
+}
+
+void TypeDef::Print(std::ostream& out, size_t indentLevel) const noexcept
+{
+
+}
+
 // parser
 
 std::optional<std::string> Parser::Parse(const dwarf::dwarf& data) noexcept
@@ -241,6 +264,9 @@ tl::expected<std::shared_ptr<LanguageConcept>, std::string> Parser::Parse(const 
 		break;
 	case dwarf::DW_TAG::subroutine_type:
 		result = std::make_shared<SubRoutine>();
+		break;
+	case dwarf::DW_TAG::typedef_:
+		result = std::make_shared<TypeDef>();
 		break;
 	default:
 		return tl::make_unexpected("Unimplemented DIE type " + to_string(die.tag));

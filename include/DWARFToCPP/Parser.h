@@ -118,6 +118,7 @@ namespace DWARFToCPP
 			Const,
 			Pointer,
 			SubRoutine,
+			TypeDef,
 		};
 
 		/// @param typeCode The typed concept's type code
@@ -136,6 +137,25 @@ namespace DWARFToCPP
 		/// @param typeCode The typed concept's type code
 		NamedType(Type::TypeCode typeCode) noexcept :
 			NamedConcept(ConceptType::Type), Type(typeCode) {}
+	};
+
+	/// @brief A function type that accepts arguments and returns one argument
+	class SubRoutine : public Type
+	{
+	public:
+		SubRoutine() noexcept :
+			LanguageConcept(ConceptType::Type),
+			Type(TypeCode::SubRoutine) {}
+
+		/// @brief Parses a concept from a debug information entry
+		virtual std::optional<std::string> Parse(Parser& parser, const dwarf::die& entry) noexcept;
+		/// @brief Prints the full concept's C equivalent out to a stream
+		/// @param out The output stream
+		/// @param indentLevel The indention level
+		virtual void Print(std::ostream& out, size_t indentLevel) const noexcept;
+	private:
+		std::weak_ptr<Type> m_returnType;
+		std::vector<std::weak_ptr<Instance>> m_parameterTypes;
 	};
 
 	/// @brief A basic built-in type to the language
@@ -170,23 +190,26 @@ namespace DWARFToCPP
 		virtual void Print(std::ostream& out, size_t indentLevel) const noexcept;
 	};
 
-	/// @brief A function type that accepts arguments and returns one argument
-	class SubRoutine : public Type
+	/// @brief An alias for another type
+	class TypeDef : public NamedType
 	{
 	public:
-		SubRoutine() noexcept :
-			LanguageConcept(ConceptType::Type),
-			Type(TypeCode::SubRoutine) {}
+		TypeDef() noexcept : LanguageConcept(ConceptType::Type),
+			NamedType(TypeCode::TypeDef) {}
 
-		/// @brief Parses a concept from a debug information entry
+		/// @return The alias type for the typedef
+		const std::weak_ptr<Type>& GetAliasType() const noexcept { return m_aliasType; }
+
+		/// @brief Parses the concept from a debug info entry
+		/// @param entry The debug info entry
+		/// @return The error, if one occurs
 		virtual std::optional<std::string> Parse(Parser& parser, const dwarf::die& entry) noexcept;
 		/// @brief Prints the full concept's C equivalent out to a stream
 		/// @param out The output stream
 		/// @param indentLevel The indention level
 		virtual void Print(std::ostream& out, size_t indentLevel) const noexcept;
 	private:
-		std::weak_ptr<Type> m_returnType;
-		std::vector<std::weak_ptr<Instance>> m_parameterTypes;
+		std::weak_ptr<Type> m_aliasType;
 	};
 
 	/// @brief A modifier modifies an underlying type,
@@ -200,14 +223,14 @@ namespace DWARFToCPP
 			Type(underlyingType) {}
 
 		/// @return The referenced type that is modified
-		const std::weak_ptr<Type> GetReferencedType() const noexcept { return m_referencedType; }
+		const std::optional<std::weak_ptr<Type>> GetReferencedType() const noexcept { return m_referencedType; }
 
 		/// @brief Parses the concept from a debug info entry
 		/// @param entry The debug info entry
 		/// @return The error, if one occurs
 		virtual std::optional<std::string> Parse(Parser& parser, const dwarf::die& entry) noexcept;
 	private:
-		std::weak_ptr<Type> m_referencedType;
+		std::optional<std::weak_ptr<Type>> m_referencedType;
 	};
 
 	/// @brief A constant use of a specific type
