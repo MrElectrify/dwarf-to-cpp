@@ -23,10 +23,21 @@ std::optional<std::string> Class::Parse(Parser& parser, const dwarf::die& entry)
 	// parse each child in the class
 	for (const auto child : entry)
 	{
+		if (child.tag != dwarf::DW_TAG::formal_parameter &&
+			child.tag != dwarf::DW_TAG::template_type_parameter &&
+			child.tag != dwarf::DW_TAG::template_value_parameter)
+			continue;
 		auto parsedChild = parser.Parse(child);
 		if (parsedChild.has_value() == false)
 			return std::move(parsedChild.error());
-		AddConcept(parsedChild.value());
+		if (child.tag == dwarf::DW_TAG::formal_parameter)
+			AddConcept(parsedChild.value());
+		else
+		{
+			if (child.tag == dwarf::DW_TAG::template_type_parameter)
+				AddTemplateParameter(std::dynamic_pointer_cast<TemplateType>(
+					std::move(parsedChild.value())));
+		}
 	}
 	return std::nullopt;
 }
@@ -143,7 +154,7 @@ std::optional<std::string> SubProgram::Parse(Parser& parser, const dwarf::die& e
 		if (parsedTemplateParam.has_value() == false)
 			return std::move(parsedTemplateParam.error());
 		if (child.tag == dwarf::DW_TAG::template_type_parameter)
-			m_templateParameters.emplace_back(std::dynamic_pointer_cast<
+			AddTemplateParameter(std::dynamic_pointer_cast<
 				TemplateType>(std::move(parsedTemplateParam.value())));
 	}
 	return std::nullopt;
@@ -184,6 +195,11 @@ std::optional<std::string> SubRoutine::Parse(Parser& parser, const dwarf::die& e
 void SubRoutine::Print(std::ostream& out, size_t indentLevel) const noexcept
 {
 
+}
+
+void Templated::AddTemplateParameter(std::variant<std::weak_ptr<TemplateType>> templateParameter) noexcept
+{
+	m_templateParameters.push_back(std::move(templateParameter));
 }
 
 std::optional<std::string> TypeDef::Parse(Parser& parser, const dwarf::die& entry) noexcept

@@ -32,6 +32,8 @@ namespace DWARFToCPP
 	class Parser;
 
 	class Instance;
+	class TypeDef;
+	using TemplateType = TypeDef;
 
 	/// @brief An abstract concept that exists in a language
 	class LanguageConcept
@@ -108,6 +110,20 @@ namespace DWARFToCPP
 		std::unordered_map<std::string, std::weak_ptr<NamedConcept>> m_namedConcepts;
 	};
 
+	class Templated
+	{
+	public:
+		/// @return The template parameters
+		const std::vector<std::variant<std::weak_ptr<TemplateType>>>& 
+			GetTemplateParameters() const noexcept { return m_templateParameters; }
+	protected:
+		/// @brief Adds a template parameter to the parameter list
+		/// @param templateParameter The template parameter
+		void AddTemplateParameter(std::variant<std::weak_ptr<TemplateType>> templateParameter) noexcept;
+	private:
+		std::vector<std::variant<std::weak_ptr<TemplateType>>> m_templateParameters;
+	};
+
 	/// @brief A data type
 	class Type : public virtual LanguageConcept
 	{
@@ -174,7 +190,8 @@ namespace DWARFToCPP
 	};
 
 	/// @brief A class is an instantiable holder of named concepts
-	class Class : public NamedType, public NamedConceptMap
+	class Class : public NamedType, public NamedConceptMap,
+		public Templated
 	{
 	public:
 		Class() noexcept :
@@ -212,8 +229,6 @@ namespace DWARFToCPP
 	private:
 		std::weak_ptr<Type> m_aliasType;
 	};
-
-	using TemplateType = TypeDef;
 
 	/// @brief A modifier modifies an underlying type,
 	/// and is usually represented by an associated keyword
@@ -285,7 +300,8 @@ namespace DWARFToCPP
 	};
 
 	/// @brief A subprogram is an instance of a subroutine
-	class SubProgram : public NamedConcept, public SubRoutine
+	class SubProgram : public NamedConcept, public SubRoutine,
+		public Templated
 	{
 	public:
 		SubProgram() noexcept :
@@ -300,8 +316,6 @@ namespace DWARFToCPP
 		/// @param out The output stream
 		/// @param indentLevel The indention level
 		virtual void Print(std::ostream& out, size_t indentLevel) const noexcept;
-	private:
-		std::vector<std::variant<std::weak_ptr<TemplateType>>> m_templateParameters;
 	};
 
 	/// @brief A namespace contains all types and instances
