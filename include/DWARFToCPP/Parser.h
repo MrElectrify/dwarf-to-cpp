@@ -134,6 +134,7 @@ namespace DWARFToCPP
 			Class,
 			Const,
 			Pointer,
+			Reference,
 			SubRoutine,
 			TypeDef,
 		};
@@ -272,6 +273,19 @@ namespace DWARFToCPP
 	public:
 		Pointer() noexcept : LanguageConcept(ConceptType::Type),
 			Modifier(Type::TypeCode::Pointer, true) {}
+
+		/// @brief Prints the full concept's C equivalent out to a stream
+		/// @param out The output stream
+		/// @param indentLevel The indention level
+		virtual void Print(std::ostream& out, size_t indentLevel) const noexcept;
+	};
+
+	/// @brief A memory reference to a specific type
+	class Reference : public Modifier
+	{
+	public:
+		Reference() noexcept : LanguageConcept(ConceptType::Type),
+			Modifier(Type::TypeCode::Reference, true) {}
 
 		/// @brief Prints the full concept's C equivalent out to a stream
 		/// @param out The output stream

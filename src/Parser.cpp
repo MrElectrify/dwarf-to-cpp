@@ -227,6 +227,11 @@ void TypeDef::Print(std::ostream& out, size_t indentLevel) const noexcept
 
 }
 
+void Reference::Print(std::ostream& out, size_t indentLevel) const noexcept
+{
+
+}
+
 // parser
 
 std::optional<std::string> Parser::Parse(const dwarf::dwarf& data) noexcept
@@ -290,6 +295,9 @@ tl::expected<std::shared_ptr<LanguageConcept>, std::string> Parser::Parse(const 
 		break;
 	case dwarf::DW_TAG::pointer_type:
 		result = std::make_shared<Pointer>();
+		break;
+	case dwarf::DW_TAG::reference_type:
+		result = std::make_shared<Reference>();
 		break;
 	case dwarf::DW_TAG::subprogram:
 		result = std::make_shared<SubProgram>();
