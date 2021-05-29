@@ -108,7 +108,7 @@ namespace DWARFToCPP
 		/// @return The named concept, or the error
 		tl::expected<std::shared_ptr<NamedConcept>, std::string> 
 			FindConcept(const std::string& name) const noexcept;
-	private:
+	protected:
 		std::unordered_map<std::string, std::weak_ptr<NamedConcept>> m_namedConcepts;
 	};
 
@@ -403,6 +403,11 @@ namespace DWARFToCPP
 		/// @brief Prints all classes and namespaces to a stream
 		/// @param out The output stream
 		void Print(std::ostream& out) noexcept;
+
+		/// @brief Prints indents to a stream
+		/// @param out The output stream
+		/// @param indentLevel The indention level
+		void PrintIndents(std::ostream& out, size_t indentLevel) noexcept;
 	private:
 		std::unordered_map<const void*, std::shared_ptr<LanguageConcept>> m_parsedConcepts;
 	};

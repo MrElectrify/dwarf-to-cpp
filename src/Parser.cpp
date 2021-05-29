@@ -2,6 +2,8 @@
 
 #include <fmt/format.h>
 
+#include <iterator>
+#include <ostream>
 #include <ranges>
 #include <stack>
 #include <unordered_set>
@@ -134,7 +136,12 @@ std::optional<std::string> Namespace::Parse(Parser& parser, const dwarf::die& en
 
 void Namespace::Print(std::ostream& out, size_t indentLevel) const noexcept
 {
-	
+	fmt::format_to(std::ostream_iterator<char>(out),
+		"{0:\t<{1}}namespace {2}\n{0:\t<{1}}{{\n", "", indentLevel, GetName());
+	for (const auto& namedConcept : m_namedConcepts)
+		namedConcept.second.lock()->Print(out, indentLevel + 1);
+	fmt::format_to(std::ostream_iterator<char>(out),
+		"{:\t<{}}}};", "", indentLevel);
 }
 
 void Pointer::Print(std::ostream& out, size_t indentLevel) const noexcept
@@ -362,4 +369,6 @@ tl::expected<std::shared_ptr<LanguageConcept>, std::string> Parser::Parse(const 
 void Parser::Print(std::ostream& out) noexcept
 {
 	// print the global namespace
+	for (const auto& namedConcept : m_namedConcepts)
+		namedConcept.second.lock()->Print(out, 0);
 }
