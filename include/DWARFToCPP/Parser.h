@@ -33,6 +33,8 @@ namespace DWARFToCPP
 
 	class Instance;
 	class TypeDef;
+
+	/// @brief A template type
 	using TemplateType = TypeDef;
 
 	/// @brief An abstract concept that exists in a language
@@ -297,10 +299,17 @@ namespace DWARFToCPP
 	class Instance : public NamedConcept
 	{
 	public:
+		enum class InstanceCode
+		{
+			BasicInstance,
+			TemplateValue
+		};
+
 		/// @param instanceCode The code of the instance
-		Instance() noexcept :
+		Instance(InstanceCode instanceCode = InstanceCode::BasicInstance) noexcept :
 			LanguageConcept(ConceptType::Instance), 
-			NamedConcept(ConceptType::Instance) {}
+			NamedConcept(ConceptType::Instance),
+			m_instanceCode(instanceCode) {}
 
 		/// @return The type of the instance
 		const std::weak_ptr<Type>& GetInstanceType() const noexcept { return m_instanceType; }
@@ -312,7 +321,29 @@ namespace DWARFToCPP
 		/// @param indentLevel The indention level
 		virtual void Print(std::ostream& out, size_t indentLevel) const noexcept;
 	private:
+		InstanceCode m_instanceCode;
 		std::weak_ptr<Type> m_instanceType;
+	};
+
+	/// @brief A template value
+	class TemplateValue : public Instance
+	{
+	public:
+		TemplateValue() noexcept : 
+			LanguageConcept(ConceptType::Instance),
+			Instance(InstanceCode::TemplateValue) {}
+
+		/// @return The value of the template
+		const std::string& GetValue() const noexcept { return m_value; }
+
+		/// @brief Parses a concept from a debug information entry
+		virtual std::optional<std::string> Parse(Parser& parser, const dwarf::die& entry) noexcept;
+		/// @brief Prints the full concept's C equivalent out to a stream
+		/// @param out The output stream
+		/// @param indentLevel The indention level
+		virtual void Print(std::ostream& out, size_t indentLevel) const noexcept;
+	private:
+		std::string m_value;
 	};
 
 	/// @brief A subprogram is an instance of a subroutine

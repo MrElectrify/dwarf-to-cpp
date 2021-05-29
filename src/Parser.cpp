@@ -97,7 +97,7 @@ std::optional<std::string> NamedConcept::Parse(Parser& parser, const dwarf::die&
 {
 	const auto name = entry.resolve(dwarf::DW_AT::name);
 	if (name.valid() == false)
-		m_name = fmt::format_int(std::hash<void*>()(this)).c_str();
+		m_name = fmt::format_int(std::hash<void*>()(this)).str();
 	else
 		m_name = name.as_string();
 	return std::nullopt;
@@ -205,6 +205,37 @@ void Templated::AddTemplateParameter(std::variant<std::weak_ptr<TemplateType>> t
 	m_templateParameters.push_back(std::move(templateParameter));
 }
 
+std::optional<std::string> TemplateValue::Parse(Parser& parser, const dwarf::die& entry) noexcept
+{
+	if (const auto error = Instance::Parse(parser, entry);
+		error.has_value() == true)
+		return error;
+	const auto value = entry.resolve(dwarf::DW_AT::const_value);
+	if (value.valid() == false)
+		return "A template type was missing a value";
+	switch (value.get_type())
+	{
+	case dwarf::value::type::constant:
+	case dwarf::value::type::uconstant:
+		m_value = fmt::format_int(value.as_uconstant()).str();
+		break;
+	case dwarf::value::type::sconstant:
+		m_value = fmt::format_int(value.as_sconstant()).str();
+		break;
+	case dwarf::value::type::string:
+		m_value = value.as_string();
+		break;
+	default:
+		return "Unhandled type for template value: " + to_string(value.get_type());
+	}
+	return std::nullopt;
+}
+
+void TemplateValue::Print(std::ostream& out, size_t indentLevel) const noexcept
+{
+
+}
+
 std::optional<std::string> TypeDef::Parse(Parser& parser, const dwarf::die& entry) noexcept
 {
 	if (const auto error = NamedConcept::Parse(parser, entry);
@@ -307,6 +338,9 @@ tl::expected<std::shared_ptr<LanguageConcept>, std::string> Parser::Parse(const 
 		break;
 	case dwarf::DW_TAG::template_type_parameter:
 		result = std::make_shared<TemplateType>();
+		break;
+	case dwarf::DW_TAG::template_value_parameter:
+		result = std::make_shared<TemplateValue>();
 		break;
 	case dwarf::DW_TAG::typedef_:
 		result = std::make_shared<TypeDef>();
